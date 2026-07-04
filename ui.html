@@ -1977,18 +1977,6 @@ function abrirModalCookie(){
   $("modalCookie").classList.add("aberto");
   atualizarStatusCookie();
 }
-async function salvarCookie(){
-  const valor = $("cookieNovo").value.trim();
-  if (!valor) return toast("Cole o cookie primeiro.");
-  const r = await fetch("/api/cookie", {method:"POST",
-    headers:{"Content-Type":"application/json"}, body:JSON.stringify({cookie:valor})});
-  const s = await r.json();
-  if (r.ok){
-    $("cookieNovo").value = "";
-    toast(s.valido ? "Cookie salvo e válido! ✔" : "Cookie salvo, mas a API ainda recusa (HTTP " + s.http + ")");
-    atualizarStatusCookie();
-  } else toast(s.erro || "Erro ao salvar.");
-}
 async function salvarCookieEExtrair(){
   const valor = $("cookieNovo").value.trim();
   const termo = $("cookieTermo").value.trim();
