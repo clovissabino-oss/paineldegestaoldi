@@ -348,20 +348,28 @@
   <aside class="detalhe" id="painelDetalhe" style="display:none"></aside>
 </div>
 
-<!-- ==================== MODAL COOKIE ==================== -->
+<!-- ==================== MODAL COOKIE + EXTRAÇÃO ==================== -->
 <div class="veu" id="modalCookie">
   <div class="modal">
-    <h2>🍪 Cookie da sessão do admin</h2>
+    <h2>🔑 Cookie e extração</h2>
     <div class="status-caixa" id="cookieStatusCaixa">Verificando...</div>
-    <p style="font-size:13px; margin-bottom:8px"><b>Colar um cookie novo:</b>
+    <p style="font-size:13px; margin-bottom:8px"><b>Colar o cookie do admin:</b>
        no Chrome logado no admin → F12 → aba <b>Network</b> → F5 → filtre por
        <code>api.estrategia.com</code> → clique numa linha → <b>Request Headers</b> →
        copie o valor inteiro da linha <code>cookie:</code> e cole abaixo.</p>
     <textarea id="cookieNovo" placeholder="cole aqui o cookie completo..."></textarea>
-    <div class="acoes">
-      <button class="btn" onclick="fecharModais()">Fechar</button>
-      <button class="btn primario" onclick="salvarCookie()">Salvar e testar</button>
+    <div style="display:flex; gap:10px; align-items:flex-end; margin-top:10px">
+      <div style="flex:0 0 160px">
+        <label style="font-size:12px; color:var(--texto2); display:block; margin-bottom:4px">Concurso</label>
+        <input type="text" id="cookieTermo" placeholder="PRF" style="width:100%">
+      </div>
+      <div style="flex:1; text-align:right">
+        <button class="btn" onclick="fecharModais()">Fechar</button>
+        <button class="btn primario" id="btnSalvarExtrair" onclick="salvarCookieEExtrair()">💾 Salvar e extrair</button>
+      </div>
     </div>
+    <p style="font-size:12px; color:var(--texto2); margin-top:14px; border-top:1px dashed var(--borda); padding-top:10px">
+      📊 <b>Metabase</b> (data real de gravação) — em breve; hoje roda pelo <code>_depara_metabase.bat</code>.</p>
   </div>
 </div>
 
@@ -1960,6 +1968,9 @@ async function atualizarStatusCookie(){
       <div class="lin"><span>Expira em</span><b>${esc(s.expira_em) || "—"}
         ${s.dias_restantes != null ? " (~" + s.dias_restantes.toFixed(0) + " dias)" : ""}</b></div>
       <div class="lin"><span>cookie.txt atualizado em</span><b>${esc(s.atualizado_em) || "—"}</b></div>`;
+
+    const campoTermo = $("cookieTermo");
+    if (campoTermo && !campoTermo.value.trim() && s.termo) campoTermo.value = s.termo;
   } catch(e){ /* servidor fora */ }
 }
 function abrirModalCookie(){
@@ -1978,6 +1989,29 @@ async function salvarCookie(){
     atualizarStatusCookie();
   } else toast(s.erro || "Erro ao salvar.");
 }
+async function salvarCookieEExtrair(){
+  const valor = $("cookieNovo").value.trim();
+  const termo = $("cookieTermo").value.trim();
+  if (!valor) return toast("Cole o cookie primeiro.");
+  if (!termo) return toast("Informe o concurso (ex.: PRF).");
+  const btn = $("btnSalvarExtrair");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/cookie", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({cookie:valor, termo})});
+    const s = await r.json();
+    if (!r.ok){ toast(s.erro || "Erro ao salvar."); return; }
+    $("cookieNovo").value = "";
+    atualizarStatusCookie();
+    if (!s.valido){ toast("Cookie salvo, mas a API recusa (HTTP " + (s.http ?? "—") + "). Cole um cookie novo."); return; }
+    toast("Cookie ok! Iniciando extração…");
+    fecharModais();
+    await dispararExtracao(termo);
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 /* ======================= extração ============================== */
 function abrirModalExtrair(){
@@ -1986,13 +2020,17 @@ function abrirModalExtrair(){
   $("btnIniciarExtracao").disabled = false;
   verificarExtracaoEmAndamento();
 }
-async function iniciarExtracao(){
-  const termo = $("termoExtrair").value.trim();
+async function dispararExtracao(termo){
   const r = await fetch("/api/extrair", {method:"POST",
     headers:{"Content-Type":"application/json"}, body:JSON.stringify({termo})});
-  if (!r.ok){ const e = await r.json(); return toast(e.erro || "Erro."); }
+  if (!r.ok){ const e = await r.json().catch(() => ({})); toast(e.erro || "Erro ao extrair."); return false; }
+  $("modalExtrair").classList.add("aberto");
   $("btnIniciarExtracao").disabled = true;
   acompanharExtracao();
+  return true;
+}
+async function iniciarExtracao(){
+  await dispararExtracao($("termoExtrair").value.trim());
 }
 function verificarExtracaoEmAndamento(){
   fetch("/api/extrair/status").then(r => r.json()).then(s => {
