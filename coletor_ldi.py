@@ -1,0 +1,160 @@
+# -*- coding: utf-8 -*-
+"""
+============================================================
+ COLETOR LDI — Conteúdo completo por concurso (SOMENTE LEITURA)
+ Varre TODOS os blocos (questões, textos, PDFs, vídeos...) dos
+ cursos de um concurso e grava snapshots de METADADOS em
+ saida\\conteudo.db (SQLite). O fluxo de vídeos (extrator_ldi)
+ continua intacto — este script é a fundação do Painel de
+ Conteúdo (spec docs/superpowers/specs/2026-07-05-*.md).
+
+ Uso:  py coletor_ldi.py [--termo BACEN] [--continuar] [--com-videos] [--agendado]
+       --termo       sobrepõe o termo_busca do config.json
+       --continuar   retoma a coleta interrompida/parcial mais recente do termo
+       --com-videos  além da base, emite o videos_*.json/csv clássico
+       --agendado    não pede ENTER no final (p/ Agendador de Tarefas)
+============================================================
+"""
+import argparse
+import json
+import os
+import re
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import requests
+
+import banco_conteudo
+import extrator_ldi
+import parse_blocos
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+
+class CookieVencido(SystemExit):
+    pass
+
+
+def baixar_blocos(sessao, item_id, tentativa=1):
+    url = f"{extrator_ldi.API}/bo/ldi/blocks?item_id={item_id}"
+    try:
+        r = sessao.get(url, timeout=60)
+    except requests.RequestException as e:
+        if tentativa < 4:
+            time.sleep(0.7 * tentativa * tentativa)
+            return baixar_blocos(sessao, item_id, tentativa + 1)
+        raise RuntimeError(f"rede: {e}")
+    if r.status_code in (401, 403):
+        raise CookieVencido("\n[ERRO] A API respondeu 401/403 — o cookie venceu.\n"
+                            "       Atualize o cookie.txt e rode com --continuar.")
+    if r.status_code == 429 or r.status_code >= 500:
+        if tentativa < 4:
+            time.sleep(0.7 * tentativa * tentativa)
+            return baixar_blocos(sessao, item_id, tentativa + 1)
+        raise RuntimeError(f"HTTP {r.status_code}")
+    if not r.ok:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:120]}")
+    return r.json().get("data") or []
+
+
+def _baixar_lote(sessao, con, extracao_id, pendentes, concorrencia):
+    """Baixa e grava as aulas pendentes; devolve {item_id: erro} das que falharam."""
+    erros, feitos = {}, 0
+    with ThreadPoolExecutor(max_workers=int(concorrencia)) as pool:
+        futuros = {pool.submit(baixar_blocos, sessao, i): i for i in pendentes}
+        for fut in as_completed(futuros):
+            item_id = futuros[fut]
+            try:
+                brutos = fut.result()
+                metas = [parse_blocos.meta_do_bloco(b) for b in brutos]
+                banco_conteudo.gravar_blocos_da_aula(con, extracao_id, item_id, metas)
+            except SystemExit:
+                raise
+            except Exception as e:  # falha pontual: registra e segue
+                erros[item_id] = str(e)
+            feitos += 1
+            if feitos % 100 == 0 or feitos == len(pendentes):
+                print(f"      ...{feitos}/{len(pendentes)}")
+    return erros
+
+
+def coletar(cfg, sessao, termo, caminho_banco, continuar=False, com_videos=False):
+    con = banco_conteudo.abrir(caminho_banco)
+    try:
+        if continuar:
+            ext = banco_conteudo.extracao_em_andamento(con, termo)
+            if ext is None:
+                raise extrator_ldi.falha(
+                    f"Nenhuma coleta retomável de \"{termo}\" na base.")
+            extracao_id = ext["id"]
+            print(f"[1/4] Retomando a coleta #{extracao_id} de \"{termo}\"...")
+        else:
+            print(f"[1/4] Buscando cursos com \"{termo}\"...")
+            cursos = extrator_ldi.listar_cursos(sessao, termo)
+            if cfg.get("filtro_local"):
+                rx = re.compile(cfg["filtro_local"], re.I)
+                cursos = [c for c in cursos if rx.search(c.get("name") or "")]
+            if not cursos:
+                raise extrator_ldi.falha("Nenhum curso encontrado — confira o termo.")
+            extracao_id = banco_conteudo.iniciar_extracao(con, termo, cfg["vertical"])
+            n_cursos, n_aulas = banco_conteudo.gravar_arvore(con, extracao_id, cursos)
+            print(f"      {n_cursos} cursos, {n_aulas} aulas únicas (snapshot #{extracao_id})")
+
+        pendentes = banco_conteudo.aulas_pendentes(con, extracao_id)
+        print(f"[2/4] {len(pendentes)} aulas a baixar")
+        print(f"[3/4] Baixando blocos ({cfg['concorrencia']} por vez)...")
+        erros = _baixar_lote(sessao, con, extracao_id, pendentes, cfg["concorrencia"])
+        if erros:  # 1 rodada de retry
+            print(f"      retry de {len(erros)} aulas com falha...")
+            erros = _baixar_lote(sessao, con, extracao_id, list(erros), cfg["concorrencia"])
+
+        status = banco_conteudo.finalizar_extracao(con, extracao_id, erros)
+        tot = con.execute("SELECT total_aulas, total_blocos FROM extracoes WHERE id=?",
+                          (extracao_id,)).fetchone()
+        print(f"[4/4] Coleta {status}: {tot[0]} aulas, {tot[1]} blocos"
+              + (f" | {len(erros)} aulas com erro (retomável com --continuar)" if erros else ""))
+        return extracao_id
+    finally:
+        con.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Coletor LDI — conteúdo completo por concurso (somente leitura)")
+    parser.add_argument("--termo", help="termo de busca (sobrepõe o config.json)")
+    parser.add_argument("--continuar", action="store_true",
+                        help="retoma a coleta interrompida/parcial mais recente do termo")
+    parser.add_argument("--com-videos", action="store_true",
+                        help="além da base, emite o videos_*.json/csv clássico")
+    parser.add_argument("--agendado", action="store_true", help="não pede ENTER no final")
+    args = parser.parse_args()
+
+    cfg = extrator_ldi.carregar_config()
+    termo = args.termo or cfg["termo_busca"]
+    if args.continuar and args.com_videos:
+        raise extrator_ldi.falha("--com-videos não funciona com --continuar "
+                                 "(rode uma coleta nova).")
+    sessao = extrator_ldi.montar_sessao(cfg, extrator_ldi.carregar_cookie())
+    caminho = os.path.join(extrator_ldi.PASTA_APP, cfg["pasta_saida"], "conteudo.db")
+
+    print("=" * 60)
+    print(f" COLETOR LDI  |  termo: {termo}  |  banco: {caminho}")
+    print("=" * 60)
+    coletar(cfg, sessao, termo, caminho,
+            continuar=args.continuar, com_videos=args.com_videos)
+    if not args.agendado:
+        input("\nPressione ENTER para fechar...")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit as e:
+        if e.code and "--agendado" not in sys.argv:
+            input("\nPressione ENTER para fechar...")
+        raise
