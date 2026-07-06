@@ -23,6 +23,11 @@ deps: `requests` + `flask`). Sem git.
 py extrator_ldi.py [--termo PRF] [--agendado]      # 1. extrai árvore do admin LDI → saida\videos_*.{csv,json}
 py depara_metabase.py [--arquivo X.json] [--refresh]  # 2. cruza com Metabase (data real de gravação)
 py visualizador.py [--sem-navegador]               # 3. tela analítica Flask em http://127.0.0.1:8765
+
+# Painel de Conteúdo (fundação — spec/plano em docs\superpowers\):
+py coletor_ldi.py [--termo X] [--continuar] [--com-videos] [--agendado]
+#   varre TODOS os blocos (questões/textos/PDFs/vídeos) → snapshots em saida\conteudo.db
+py -m unittest discover -s tests                   # testes (parse, banco, coletor, config)
 ```
 
 Os `.bat` (`_iniciar_extrator.bat`, `_depara_metabase.bat`, `_abrir_visualizador.bat`) só
@@ -53,6 +58,11 @@ Pipeline de 3 etapas, cada uma um script independente que se comunica pelos arqu
    `gravacao_*`, `mb_*`, `depara_ok`, `depara_confere`. A auth do Metabase é **reutilizada do
    app de Limpeza** (importa `experimento_metabase` de
    `C:\⚙️ Aplicativos\🦉 Relatório de Cursos - Árvores - Professores\6. Limpeza Unificada de Dados`).
+Além do pipeline de vídeos, existe a fundação do **Painel de Conteúdo** (`coletor_ldi.py` +
+`parse_blocos.py` + `banco_conteudo.py`): varre TODOS os blocos (question/tiptap/pdf/vídeo)
+de um concurso e grava snapshots de metadados em `saida\conteudo.db` (SQLite WAL, retomável
+com `--continuar`). Spec/plano em `docs\superpowers\`. O painel (porta 8766) é fase futura.
+
 3. **`visualizador.py` + `ui.html`** — servidor Flask (porta 8765) que serve a `ui.html`
    (single-file, ~100 KB, todo o front em JS vanilla inline) e expõe a API local:
    `/api/dados` (extração mais recente), `/api/cookie*`, `/api/analises` (→ `analises.json`),
@@ -101,4 +111,5 @@ de cobertura para professores sem xlsx.
 | `cookie.txt` | Cookie do admin LDI |
 | `analises.json` / `propostas.json` | Estado salvo pela tela (análises nomeadas / propostas de substituição) |
 | `saida\videos_<termo>_<data>.{json,csv}` | Resultado da extração (enriquecido in-place pelo de→para) |
+| `saida\conteudo.db` | Base SQLite do Painel de Conteúdo (snapshots de TODOS os blocos por concurso) |
 | `saida\metabase_depara.json.gz` / `saida\estoque_arvores.json.gz` | Caches (question 19885 / árvores xlsx) |

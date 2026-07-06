@@ -1,6 +1,6 @@
 # 🎬 Extrator LDI — Estado atual (norte da próxima sessão)
 
-_Última atualização: 03/07/2026 (sessão 3: copiar/relatório da árvore, seletor de cursos e sugestão automática)._
+_Última atualização: 06/07/2026 (sessão 5: fundação do Painel de Conteúdo — coletor + base SQLite)._
 
 Este arquivo é o **ponto de partida** de qualquer nova sessão. Para o passo a passo
 de uso, veja o `TUTORIAL.md`. Para a visão do projeto, a memória do Claude
@@ -143,14 +143,53 @@ Sem isso, o `.exe` serve a UI antiga (o código-fonte `ui.html`/`visualizador.py
 Projeto agora versionado em `github.com/clovissabino-oss/videosldi`
 (branch de trabalho `feat/painel-cookie-extracao`).
 
+## ✅ Sessão 5 (05-06/07): fundação do Painel de Conteúdo (coletor + conteudo.db)
+
+Decisão do Luiz: ampliar a ferramenta para um **painel de gestão/auditoria de conteúdo do
+novo BO** (inventário, qualidade, migração, evolução no tempo) — a API `/bo/ldi` entrega
+TUDO que a tela mostra (censo real BACEN: 115.526 questions, 55.690 tiptap, 10.264 vídeos,
+3.048 PDFs em 128 cursos/10.545 aulas), então **Playwright/scraping foi descartado**.
+Spec aprovado seção a seção: `docs\superpowers\specs\2026-07-05-painel-conteudo-fundacao-design.md`
+(decisões: por concurso acumulando, metadados+referência, app novo ao lado, hospedável no
+infosab). Plano executado: `docs\superpowers\plans\2026-07-05-coletor-conteudo.md`.
+
+**O que foi construído (branch `feat/coletor-conteudo`, TDD, 20 testes verdes):**
+- `parse_blocos.py` — parse puro payload→metadados por tipo (question/tiptap/pdf/vídeo),
+  testado com payloads reais; vídeo reusa `id_sistema_antigo()` (ponto de milhar ok).
+- `banco_conteudo.py` — `saida\conteudo.db` (SQLite WAL): extracoes/cursos/capitulos/
+  aulas (com contagens por tipo)/aulas_coletadas/blocos (colunas promovidas + meta JSON).
+  Cada execução = 1 snapshot; nada é sobrescrito (é o que habilita o diff futuro).
+- `coletor_ldi.py` — CLI: `py coletor_ldi.py [--termo X] [--continuar] [--com-videos]
+  [--agendado]`. Todas as aulas (não só com vídeo); 1 aula = 1 transação; 401/403 aborta
+  claro (CookieVencido); falha pontual registra e segue + 1 retry; `--continuar` retoma
+  `em_andamento`/`parcial`; `--com-videos` emite o videos_*.json/csv clássico.
+
+**✅ Verificado com dados reais (06/07):** coleta do BACEN `completa`, 0 erros —
+snapshot #1: 128 cursos, **3.612 aulas únicas** (10.544 vínculos curso↔aula),
+**64.838 blocos únicos** (40.964 questions, 20.241 tiptap, 2.693 vídeos, 861 PDFs,
+78 casts). Somas por vínculo bateram com o censo da sondagem (vídeos/PDFs/casts exatos).
+Nota: o censo de "185 mil blocos" contava por vínculo; deduplicado entre cursos é ~65 mil.
+Primeiros achados de auditoria: **12.837 questões sem solução (31,3%)**, 21 cursos sem
+aula na árvore, 11 cursos sem vídeo, 3 vídeos sem ID antigo. **Amostra visual do painel**
+(dados reais, estática) publicada como Artifact na sessão — a fase 2 entrega isso como app.
+(Durante a verificação o cookie do LDI foi invalidado no servidor e recolado — o abort
+claro do 401 funcionou como projetado.)
+
+**Fases seguintes (specs próprios na hora certa):** 2-Inventário (painel.py porta 8766),
+3-Qualidade (regras SQL), 4-Evolução (diff snapshots), 5-Migração de questões (investigar
+se existe fonte do sistema antigo para questões, como a 19885 é para vídeos).
+
 ---
 
 ## 🔑 Coisas que a próxima sessão PRECISA saber
 
 ### Cookies (dois sistemas, dois cookies diferentes)
 - **LDI (admin)**: `cookie.txt` na pasta do projeto. Só o `__Secure-SID` importa,
-  vale **~30 dias** (o atual expira **01/08/2026**). Trocar pela tela do Visualizador
-  (botão 🍪) ou editando o arquivo.
+  vale **~30 dias** (o atual expira **05/08/2026**) — mas pode ser invalidado antes
+  pelo servidor (relogin derruba a sessão antiga: `AUTH.USER_SESSION_NOT_FOUND`).
+  Trocar pela tela do Visualizador (botão 🍪) ou editando o arquivo. Jeito à prova
+  de engano de pegar o novo: F12 → **Application** → Cookies → copiar o Value de
+  `__Secure-SID` (a aba Network guarda requisições velhas com o cookie morto).
 - **Metabase**: reusa a auth do app de Limpeza em
   `C:\⚙️ Aplicativos\🦉 Relatório de Cursos - Árvores - Professores\6. Limpeza Unificada de Dados`
   (`metabase_cookies.json` de lá). Cookie do Cloudflare vale **~24h** e **exige o Warp
