@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel de Conteúdo — Inventário</title>
+<style>
+  :root {
+    --surface: #fcfcfb; --card: #f4f4f2; --border: #e3e2dd;
+    --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #8a897f;
+    --accent: #2a78d6;
+    --warn: #a06b00; --warn-bg: #fdf3dc; --crit: #b23230; --crit-bg: #fbe9e8;
+    --ok: #1c6e38; --ok-bg: #e2f3e7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19; --card: #232322; --border: #383734;
+      --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8a897f;
+      --accent: #3987e5;
+      --warn: #e5b04a; --warn-bg: #35290e; --crit: #e66767; --crit-bg: #3a1c1b;
+      --ok: #63c584; --ok-bg: #14301d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--surface); color: var(--ink);
+    font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin: 0 0 6px;
+  }
+  h1 { font-size: 26px; font-weight: 650; margin: 0 0 4px; text-wrap: balance; }
+  .sub { color: var(--ink-2); margin: 0 0 14px; max-width: 68ch; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+  .chip {
+    font-size: 12.5px; color: var(--ink-2); background: var(--card);
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+  h2 { font-size: 15px; font-weight: 650; margin: 0 0 2px; }
+  .h2sub { font-size: 12.5px; color: var(--ink-3); margin: 0 0 14px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 28px; }
+  .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px 12px; }
+  .kpi .n { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .kpi .l { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+  .kpi .d { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 28px; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+  .bar-row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; align-items: center; margin: 9px 0; }
+  .bar-row .bl { font-size: 13px; color: var(--ink-2); text-align: right; }
+  .bar-track { position: relative; height: 22px; }
+  .bar {
+    position: absolute; inset: 2px auto 2px 0; background: var(--accent);
+    border-radius: 0 4px 4px 0; min-width: 3px; cursor: default; transition: opacity .12s;
+  }
+  .bar:hover { opacity: .82; }
+  .bar-v {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap;
+  }
+  .find { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); }
+  .find:first-of-type { border-top: 0; }
+  .tag {
+    flex: none; font-size: 11px; font-weight: 650; letter-spacing: .06em;
+    border-radius: 4px; padding: 2px 7px; text-transform: uppercase;
+  }
+  .tag.warn { color: var(--warn); background: var(--warn-bg); }
+  .tag.crit { color: var(--crit); background: var(--crit-bg); }
+  .tag.ok { color: var(--ok); background: var(--ok-bg); }
+  .find .t { font-size: 13.5px; }
+  .find .t b { font-variant-numeric: tabular-nums; }
+  .tbl-box { border: 1px solid var(--border); border-radius: 10px; overflow: auto; max-height: 520px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  thead th {
+    position: sticky; top: 0; background: var(--card); color: var(--ink-2);
+    font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase; font-weight: 600;
+    text-align: right; padding: 10px 12px; border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  thead th:first-child { text-align: left; }
+  thead th:hover { color: var(--accent); }
+  tbody td {
+    padding: 7px 12px; border-bottom: 1px solid var(--border);
+    text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  tbody td:first-child { text-align: left; white-space: normal; min-width: 260px; }
+  tbody tr:hover { background: var(--card); }
+  .prof { display: block; font-size: 11.5px; color: var(--ink-3); }
+  .zero { color: var(--crit); font-weight: 650; }
+  .foot { font-size: 12.5px; color: var(--ink-3); margin-top: 10px; max-width: 75ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Painel de Conteúdo · Inventário (preview da fase 2)</p>
+  <h1 id="titulo"></h1>
+  <p class="sub">Dados vivos da base <code>conteudo.db</code> — snapshot mais recente.
+  Rode o coletor de novo (ou outro concurso) e recarregue a página.</p>
+  <div class="chips" id="chips"></div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="cols">
+    <div class="panel">
+      <h2>Blocos únicos por tipo</h2>
+      <p class="h2sub">Aulas compartilhadas entre cursos contam uma vez</p>
+      <div id="chart"></div>
+    </div>
+    <div class="panel">
+      <h2>Achados de auditoria</h2>
+      <p class="h2sub">Regras da fase 3 (Qualidade) sobre este snapshot</p>
+      <div id="findings"></div>
+    </div>
+  </div>
+
+  <h2>Cursos — contagens por tipo de conteúdo</h2>
+  <p class="h2sub">Clique no cabeçalho para ordenar · contagens somadas sobre as aulas de cada curso · <span class="zero">0</span> = curso sem aquele tipo</p>
+  <div class="tbl-box">
+    <table id="tbl">
+      <thead><tr>
+        <th data-k="nome">Curso</th><th data-k="aulas">Aulas</th><th data-k="videos">Vídeos</th>
+        <th data-k="questoes">Questões</th><th data-k="textos">Textos</th><th data-k="pdfs">PDFs</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="foot" id="foot"></p>
+</div>
+
+<script id="dados" type="application/json">__DADOS__</script>
+<script>
+  const D = JSON.parse(document.getElementById("dados").textContent);
+  const fmt = n => (n || 0).toLocaleString("pt-BR");
+  const K = D.kpis, X = D.achados, E = D.extracao;
+
+  document.getElementById("titulo").textContent = `${E.termo} — inventário de conteúdo do BO`;
+  document.title = `Painel de Conteúdo — ${E.termo}`;
+
+  const dt = (E.iniciada_em || "").replace("T", " ").slice(0, 16);
+  document.getElementById("chips").innerHTML = [
+    `Snapshot <b>#${E.id}</b>`, `Coletado em <b>${dt}</b>`, `Termo <b>${E.termo}</b>`,
+    `Status <b>${E.status}</b> · ${fmt(E.erros)} erro(s)`,
+  ].map(c => `<span class="chip">${c}</span>`).join("");
+
+  const kpis = [
+    { n: K.cursos_total, l: "cursos encontrados", d: `${fmt(K.cursos_com_aulas)} com aulas` },
+    { n: K.aulas_unicas, l: "aulas únicas", d: `${fmt(K.vinculos)} vínculos curso↔aula` },
+    { n: K.blocos, l: "blocos únicos", d: "todos os tipos" },
+    { n: K.questoes, l: "questões", d: K.blocos ? `${Math.round(K.questoes / K.blocos * 100)}% dos blocos` : "" },
+    { n: K.textos, l: "blocos de texto", d: "o livro em si" },
+    { n: K.videos, l: "vídeos", d: K.casts ? `inclui ${fmt(K.casts)} casts` : "" },
+  ];
+  document.getElementById("kpis").innerHTML = kpis.map(k =>
+    `<div class="kpi"><div class="n">${fmt(k.n)}</div><div class="l">${k.l}</div><div class="d">${k.d}</div></div>`).join("");
+
+  const max = Math.max(...D.tipos.map(t => t[1]), 1);
+  document.getElementById("chart").innerHTML = D.tipos.map(([l, v]) => {
+    const p = Math.max(v / max * 100, 0.5);
+    const dentro = p > 55;
+    return `<div class="bar-row"><div class="bl">${l}</div>
+      <div class="bar-track"><div class="bar" style="width:${p}%" title="${l}: ${fmt(v)} blocos"></div>
+      <div class="bar-v" style="${dentro ? `right:${100 - p + 1.5}%;color:#fff` : `left:calc(${p}% + 8px)`}">${fmt(v)}</div></div></div>`;
+  }).join("");
+
+  const pct = X.q_unicas ? (X.q_sem_solucao / X.q_unicas * 100).toFixed(1).replace(".", ",") : "0";
+  const semAula = K.cursos_total - K.cursos_com_aulas;
+  const achados = [
+    [X.q_sem_solucao ? "warn" : "ok", `<b>${fmt(X.q_sem_solucao)}</b> questões sem solução cadastrada (${pct}% das únicas)`],
+    [semAula ? "warn" : "ok", `<b>${fmt(semAula)}</b> cursos sem nenhuma aula na árvore`],
+    [X.cursos_sem_video ? "warn" : "ok", `<b>${fmt(X.cursos_sem_video)}</b> cursos com aulas mas sem nenhum vídeo`],
+    [X.cursos_sem_pdf ? "warn" : "ok", `<b>${fmt(X.cursos_sem_pdf)}</b> cursos sem nenhum PDF`],
+    [X.v_sem_id ? "crit" : "ok", `<b>${fmt(X.v_sem_id)}</b> vídeos sem ID do sistema antigo no nome (fora do de→para)`],
+    [(X.aulas_vazias || X.rascunhos) ? "warn" : "ok", `<b>${fmt(X.aulas_vazias)}</b> aulas vazias e <b>${fmt(X.rascunhos)}</b> blocos em rascunho`],
+    ["ok", `<b>${fmt(X.q_com_video)}</b> questões já têm solução em vídeo`],
+  ];
+  document.getElementById("findings").innerHTML = achados.map(([s, t]) =>
+    `<div class="find"><span class="tag ${s}">${s === "warn" ? "atenção" : s === "crit" ? "crítico" : "ok"}</span><div class="t">${t}</div></div>`).join("");
+
+  document.getElementById("foot").textContent =
+    `${fmt(K.cursos_com_aulas)} cursos com aulas na árvore (de ${fmt(K.cursos_total)} encontrados na busca). ` +
+    `Contagens por vínculo curso↔aula: uma aula reaproveitada em vários cursos conta em cada um, como o aluno a vê.`;
+
+  const tbody = document.querySelector("#tbl tbody");
+  let ordem = { k: "questoes", asc: false };
+  function render() {
+    const rows = [...D.cursos].sort((a, b) => {
+      const va = a[ordem.k] ?? 0, vb = b[ordem.k] ?? 0;
+      const c = typeof va === "string" ? va.localeCompare(vb, "pt-BR") : va - vb;
+      return ordem.asc ? c : -c;
+    });
+    tbody.innerHTML = rows.map(c => {
+      const cell = v => `<td${v ? "" : ' class="zero"'}>${fmt(v)}</td>`;
+      return `<tr><td>${(c.nome || "").trim()}${c.autores ? `<span class="prof">${c.autores}</span>` : ""}</td>
+        <td>${fmt(c.aulas)}</td>${cell(c.videos)}${cell(c.questoes)}${cell(c.textos)}${cell(c.pdfs)}</tr>`;
+    }).join("");
+  }
+  document.querySelectorAll("thead th").forEach(th => th.addEventListener("click", () => {
+    const k = th.dataset.k;
+    ordem = { k, asc: ordem.k === k ? !ordem.asc : k === "nome" };
+    render();
+  }));
+  render();
+</script>
+</body>
+</html>
