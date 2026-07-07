@@ -41,8 +41,21 @@ CREATE TABLE IF NOT EXISTS blocos(
   extracao_id INTEGER NOT NULL, item_id TEXT NOT NULL, bloco_id TEXT NOT NULL,
   tipo TEXT, ordem INTEGER, ativo INTEGER, rascunho INTEGER, titulo TEXT,
   questao_id TEXT, resposta_tipo TEXT, tem_solucao INTEGER, tem_video_solucao INTEGER,
-  video_id_antigo TEXT, duracao_seg INTEGER, tamanho_texto INTEGER, meta TEXT,
+  video_id_antigo TEXT, duracao_seg INTEGER, tamanho_texto INTEGER,
+  banca TEXT, ano INTEGER, qtd_questoes_texto INTEGER, meta TEXT,
   PRIMARY KEY(extracao_id, item_id, bloco_id));
+CREATE TABLE IF NOT EXISTS pendencias(
+  chave TEXT PRIMARY KEY,
+  regra TEXT NOT NULL, severidade TEXT NOT NULL,
+  curso_id TEXT NOT NULL, item_id TEXT DEFAULT '', bloco_id TEXT DEFAULT '',
+  descricao TEXT,
+  status TEXT NOT NULL DEFAULT 'nova',
+  extracao_id_criada INTEGER, extracao_id_ultima INTEGER,
+  criada_em TEXT, resolvida_em TEXT);
+CREATE INDEX IF NOT EXISTS ix_pend_status ON pendencias(status, severidade);
+CREATE TABLE IF NOT EXISTS acionamentos(
+  chave_pendencia TEXT NOT NULL, status TEXT NOT NULL,
+  observacao TEXT DEFAULT '', registrado_em TEXT);
 CREATE INDEX IF NOT EXISTS ix_blocos_extracao ON blocos(extracao_id);
 CREATE INDEX IF NOT EXISTS ix_blocos_tipo ON blocos(extracao_id, tipo);
 CREATE INDEX IF NOT EXISTS ix_blocos_questao ON blocos(questao_id);
@@ -51,7 +64,8 @@ CREATE INDEX IF NOT EXISTS ix_blocos_vid_antigo ON blocos(video_id_antigo);
 
 _COLS_BLOCO = ("bloco_id", "tipo", "ordem", "ativo", "rascunho", "titulo",
                "questao_id", "resposta_tipo", "tem_solucao", "tem_video_solucao",
-               "video_id_antigo", "duracao_seg", "tamanho_texto")
+               "video_id_antigo", "duracao_seg", "tamanho_texto",
+               "banca", "ano", "qtd_questoes_texto")
 
 
 def _agora():
@@ -64,6 +78,16 @@ def abrir(caminho):
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.executescript(_SCHEMA)
+    # migração de bases anteriores à v1.1 (idempotente)
+    for sql in ("ALTER TABLE blocos ADD COLUMN banca TEXT",
+                "ALTER TABLE blocos ADD COLUMN ano INTEGER",
+                "ALTER TABLE blocos ADD COLUMN qtd_questoes_texto INTEGER"):
+        try:
+            con.execute(sql)
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
+    con.execute("CREATE INDEX IF NOT EXISTS ix_blocos_item ON blocos(item_id)")
     return con
 
 
@@ -119,7 +143,8 @@ def gravar_blocos_da_aula(con, extracao_id, item_id, blocos):
         for b in blocos:
             con.execute(
                 f"INSERT OR REPLACE INTO blocos(extracao_id, item_id, "
-                f"{', '.join(_COLS_BLOCO)}, meta) VALUES({','.join('?' * 16)})",
+                f"{', '.join(_COLS_BLOCO)}, meta) "
+                f"VALUES({','.join('?' * (len(_COLS_BLOCO) + 3))})",
                 (extracao_id, item_id, *[b.get(c) for c in _COLS_BLOCO],
                  json.dumps(b.get("meta") or {}, ensure_ascii=False)))
         con.execute(

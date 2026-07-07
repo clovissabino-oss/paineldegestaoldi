@@ -24,10 +24,14 @@ py extrator_ldi.py [--termo PRF] [--agendado]      # 1. extrai árvore do admin 
 py depara_metabase.py [--arquivo X.json] [--refresh]  # 2. cruza com Metabase (data real de gravação)
 py visualizador.py [--sem-navegador]               # 3. tela analítica Flask em http://127.0.0.1:8765
 
-# Painel de Conteúdo (fundação — spec/plano em docs\superpowers\):
+# Painel de Conteúdo (fase 2 — specs/planos em docs\superpowers\):
 py coletor_ldi.py [--termo X] [--continuar] [--com-videos] [--agendado]
-#   varre TODOS os blocos (questões/textos/PDFs/vídeos) → snapshots em saida\conteudo.db
-py -m unittest discover -s tests                   # testes (parse, banco, coletor, config)
+#   varre TODOS os blocos (questões c/ banca-ano, textos c/ questões coladas, PDFs, vídeos,
+#   professores) → snapshots em saida\conteudo.db; ao final roda as regras de qualidade
+py regras_qualidade.py [--extracao N]              # motor de pendências avulso (baixa automática)
+py painel.py [--sem-navegador]                     # painel em http://127.0.0.1:8766
+#   / = inventário · /avaliacao = planilha de avaliação por disciplina (CSV/print)
+py -m unittest discover -s tests                   # testes (parse, banco, coletor, regras, painel)
 ```
 
 Os `.bat` (`_iniciar_extrator.bat`, `_depara_metabase.bat`, `_abrir_visualizador.bat`) só
@@ -58,10 +62,15 @@ Pipeline de 3 etapas, cada uma um script independente que se comunica pelos arqu
    `gravacao_*`, `mb_*`, `depara_ok`, `depara_confere`. A auth do Metabase é **reutilizada do
    app de Limpeza** (importa `experimento_metabase` de
    `C:\⚙️ Aplicativos\🦉 Relatório de Cursos - Árvores - Professores\6. Limpeza Unificada de Dados`).
-Além do pipeline de vídeos, existe a fundação do **Painel de Conteúdo** (`coletor_ldi.py` +
-`parse_blocos.py` + `banco_conteudo.py`): varre TODOS os blocos (question/tiptap/pdf/vídeo)
-de um concurso e grava snapshots de metadados em `saida\conteudo.db` (SQLite WAL, retomável
-com `--continuar`). Spec/plano em `docs\superpowers\`. O painel (porta 8766) é fase futura.
+Além do pipeline de vídeos, existe o **Painel de Conteúdo** (`coletor_ldi.py` +
+`parse_blocos.py` + `banco_conteudo.py` + `regras_qualidade.py` + `painel.py`): o coletor
+varre TODOS os blocos de um concurso (questões com banca/ano/tópicos/soluções, textos com
+detector de questões coladas, vídeos com ID antigo, professores via detalhe do curso) e grava
+snapshots em `saida\conteudo.db` (SQLite WAL, retomável). Ao fim de cada coleta, o motor de
+qualidade materializa `pendencias` (catálogo declarativo, chave determinística, baixa
+automática no snapshot seguinte). O `painel.py` (porta 8766, `painel.html`/`avaliacao.html`
+embutidas no exe) serve o inventário e a planilha de Avaliação por disciplina (a idade real
+de gravação vem do cache `metabase_depara.json.gz`). Specs/planos em `docs\superpowers\`.
 
 3. **`visualizador.py` + `ui.html`** — servidor Flask (porta 8765) que serve a `ui.html`
    (single-file, ~100 KB, todo o front em JS vanilla inline) e expõe a API local:

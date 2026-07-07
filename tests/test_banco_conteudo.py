@@ -81,6 +81,26 @@ class TestBanco(unittest.TestCase):
         row = self.con.execute("SELECT total_cursos, total_aulas, total_blocos, status FROM extracoes WHERE id=?", (eid2,)).fetchone()
         self.assertEqual((row[0], row[1], row[2], row[3]), (2, 2, 1, "completa"))
 
+    def test_migracao_adiciona_colunas_indice_e_tabelas(self):
+        cols = {r[1] for r in self.con.execute("PRAGMA table_info(blocos)")}
+        self.assertTrue({"banca", "ano", "qtd_questoes_texto"} <= cols)
+        idx = {r[1] for r in self.con.execute("PRAGMA index_list(blocos)")}
+        self.assertIn("ix_blocos_item", idx)
+        tabelas = {r[0] for r in self.con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertTrue({"pendencias", "acionamentos"} <= tabelas)
+        # reabrir a mesma base não pode estourar (migração idempotente)
+        caminho = self.con.execute("PRAGMA database_list").fetchone()[2]
+        con2 = banco_conteudo.abrir(caminho)
+        con2.close()
+
+    def test_insert_grava_campos_novos(self):
+        eid = self._nova()
+        b = dict(B1, banca="CESPE (CEBRASPE)", ano=2013, qtd_questoes_texto=None)
+        banco_conteudo.gravar_blocos_da_aula(self.con, eid, "i1", [b])
+        row = self.con.execute("SELECT banca, ano FROM blocos WHERE extracao_id=?", (eid,)).fetchone()
+        self.assertEqual((row["banca"], row["ano"]), ("CESPE (CEBRASPE)", 2013))
+
     def test_extracao_em_andamento_acha_a_mais_recente_do_termo(self):
         self.assertIsNone(banco_conteudo.extracao_em_andamento(self.con, "BACEN"))
         self._nova()

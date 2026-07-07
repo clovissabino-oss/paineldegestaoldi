@@ -229,6 +229,30 @@ painel de detalhes.
 
 ---
 
+# PARTE C½ — Painel de Conteúdo (novo): avaliação de disciplinas e qualidade
+
+Além dos vídeos, dá para auditar **todo o conteúdo** de um concurso (questões com banca e
+ano, questões coladas no texto, PDFs, vídeos com idade de gravação):
+
+1. **Coletar**: 2 cliques em `ColetorLDI.exe` (ou `py coletor_ldi.py --termo BACEN`).
+   Usa o mesmo `cookie.txt` do extrator. Leva alguns minutos e guarda tudo em
+   `saida\conteudo.db` — cada rodada vira um "retrato" datado; nada é sobrescrito.
+   Se cair no meio (ou o cookie vencer), rode de novo com `--continuar`.
+2. **Abrir o painel**: `PainelLDI.exe` (ou `py painel.py`) → abre `http://127.0.0.1:8766`.
+   - A página inicial mostra o inventário do concurso (cursos, aulas, blocos por tipo)
+     e os achados de qualidade;
+   - **📋 Avaliação de disciplina** (`/avaliacao`): escolha o curso e a banca-alvo
+     (opcional) → sai a planilha por capítulo com questões (banca, ano, soluções em
+     texto/vídeo) e vídeos (tempo e período de gravação real). **⬇ CSV** abre no Excel;
+     🖨 vira PDF.
+3. **Pendências**: a cada coleta o sistema compara com a anterior e dá baixa sozinho no
+   que foi corrigido no BO (questão que ganhou solução some da lista, por exemplo).
+
+A idade real de gravação dos vídeos usa o mesmo de→para do Metabase da PARTE C — rode o
+`_depara_metabase.bat` de vez em quando para manter o cache fresco.
+
+---
+
 # PARTE D — Script de console (alternativa, sem instalar nada)
 
 O arquivo `EXTRATOR-LDI-VIDEOS.js` faz a mesma extração colado no console do

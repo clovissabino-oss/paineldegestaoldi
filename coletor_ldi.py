@@ -62,6 +62,31 @@ def baixar_blocos(sessao, item_id, tentativa=1):
     return r.json().get("data") or []
 
 
+def _completar_autores(sessao, con, extracao_id, cursos, concorrencia):
+    """A listagem devolve só UUIDs em authors; o detalhe do curso traz structured_authors."""
+    def detalhe(cid):
+        r = sessao.get(f"{extrator_ldi.API}/bo/ldi/courses/{cid}", timeout=60)
+        if not r.ok:
+            raise RuntimeError(f"HTTP {r.status_code}")
+        return cid, (r.json().get("data") or {})
+
+    falhas = 0
+    with ThreadPoolExecutor(max_workers=int(concorrencia)) as pool:
+        futuros = {pool.submit(detalhe, c.get("id")): c for c in cursos if c.get("id")}
+        for fut in as_completed(futuros):
+            try:
+                cid, d = fut.result()
+                nomes = parse_blocos.nomes_dos_autores(d)
+                if nomes:
+                    with con:
+                        con.execute("UPDATE cursos SET autores=? WHERE extracao_id=? AND curso_id=?",
+                                    (nomes, extracao_id, cid))
+            except Exception:  # enriquecimento: falha pontual não derruba a coleta
+                falhas += 1
+    if falhas:
+        print(f"      ({falhas} cursos sem professor identificado)")
+
+
 def _baixar_lote(sessao, con, extracao_id, pendentes, concorrencia, videos_por_item=None):
     """Baixa e grava as aulas pendentes; devolve {item_id: erro} das que falharam.
 
@@ -139,6 +164,8 @@ def coletar(cfg, sessao, termo, caminho_banco, continuar=False, com_videos=False
             extracao_id = banco_conteudo.iniciar_extracao(con, termo, cfg["vertical"])
             n_cursos, n_aulas = banco_conteudo.gravar_arvore(con, extracao_id, cursos)
             print(f"      {n_cursos} cursos, {n_aulas} aulas únicas (snapshot #{extracao_id})")
+            print("      buscando professores (detalhe de cada curso)...")
+            _completar_autores(sessao, con, extracao_id, cursos, cfg["concorrencia"])
             if com_videos:
                 for curso in cursos:
                     for cap in (curso.get("content_tree_cache") or []):
@@ -160,6 +187,15 @@ def coletar(cfg, sessao, termo, caminho_banco, continuar=False, com_videos=False
                           (extracao_id,)).fetchone()
         print(f"[4/4] Coleta {status}: {tot[0]} aulas, {tot[1]} blocos"
               + (f" | {len(erros)} aulas com erro (retomável com --continuar)" if erros else ""))
+        try:
+            import regras_qualidade
+            print("      avaliando regras de qualidade...")
+            r = regras_qualidade.avaliar(con, extracao_id,
+                                         depara=regras_qualidade.carregar_depara())
+            print(f"      pendências: {r['novas']} novas, {r['reabertas']} reabertas, "
+                  f"{r['resolvidas']} resolvidas")
+        except Exception as e:
+            print(f"      (regras de qualidade falharam: {e} — rode py regras_qualidade.py)")
         if com_videos and tarefas:
             _emitir_videos(cfg, termo, os.path.dirname(os.path.abspath(caminho_banco)),
                            tarefas, videos_por_item)

@@ -49,6 +49,77 @@ BLOCO_PDF = {
 }
 
 
+BLOCO_QUESTION_EXAMS = {
+    "id": "q2", "type": "question", "order_index": 1, "is_active": True,
+    "data": {"value": "61896628", "resolved": {
+        "id": "61896628", "answer_type": "MULTIPLE_CHOICE",
+        "alternatives": [{"id": "a"}],
+        "topics": [{"path_name": ["Matérias", "Contabilidade Geral", "DRE"],
+                    "is_main_classification": True},
+                   {"path_name": ["Outra", "Secundária"], "is_main_classification": False}],
+        "exams": [{"id": "61896628", "year": 2013,
+                   "badges": [{"type": "YEAR", "text": "2013"},
+                              {"type": "83d50f93", "text": "CESPE (CEBRASPE)"},
+                              {"type": "4e3bff0b", "text": "SUFRAMA"}]}],
+        "solution": {"brief": "x"}, "has_video_solution": False,
+    }},
+}
+
+TIPTAP_COM_QUESTOES = {
+    "id": "t2", "type": "tiptap", "order_index": 2, "is_active": True,
+    "content_length": 5000,
+    "data": {"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": "EXERCÍCIOS (CEBRASPE/2025/MPE CE/Analista) Julgue o item."},
+        {"type": "text", "text": "Outra: (FGV - 2023) assinale. E (Inéditas/2026) também."},
+    ]}]},
+}
+
+
+class TestBancaAnoTopicos(unittest.TestCase):
+    def test_question_extrai_banca_ano_orgao_topico(self):
+        m = parse_blocos.meta_do_bloco(BLOCO_QUESTION_EXAMS)
+        self.assertEqual(m["banca"], "CESPE (CEBRASPE)")
+        self.assertEqual(m["ano"], 2013)
+        self.assertEqual(m["meta"]["orgao"], "SUFRAMA")
+        self.assertEqual(m["meta"]["topico"], "DRE")
+        self.assertEqual(m["meta"]["topico_caminho"], "Matérias > Contabilidade Geral > DRE")
+
+    def test_question_sem_exams_estruturado_fica_vazia(self):
+        m = parse_blocos.meta_do_bloco(BLOCO_QUESTION)  # fixture antiga: exams sem badges/year
+        self.assertEqual(m["banca"], "")
+        self.assertIsNone(m["ano"])
+
+
+class TestQuestoesNoTexto(unittest.TestCase):
+    def test_detecta_padroes_reais(self):
+        refs = parse_blocos.questoes_no_texto(TIPTAP_COM_QUESTOES["data"]["content"])
+        self.assertEqual([r["banca"] for r in refs], ["CEBRASPE", "FGV", "Inéditas"])
+        self.assertEqual([r["ano"] for r in refs], [2025, 2023, 2026])
+        self.assertIn("MPE CE", refs[0]["resto"])
+
+    def test_tiptap_ganha_contagem_e_refs(self):
+        m = parse_blocos.meta_do_bloco(TIPTAP_COM_QUESTOES)
+        self.assertEqual(m["qtd_questoes_texto"], 3)
+        self.assertEqual(len(m["meta"]["questoes_texto"]), 3)
+
+    def test_conteudo_vazio_zero(self):
+        self.assertEqual(parse_blocos.questoes_no_texto(None), [])
+        m = parse_blocos.meta_do_bloco(BLOCO_TIPTAP)  # fixture antiga sem questões
+        self.assertEqual(m["qtd_questoes_texto"], 0)
+
+
+class TestNomesDosAutores(unittest.TestCase):
+    def test_structured_authors(self):
+        d = {"structured_authors": [{"full_name": "Professora Renan Araújo"},
+                                    {"full_name": "Outro Prof"}]}
+        self.assertEqual(parse_blocos.nomes_dos_autores(d), "Professora Renan Araújo | Outro Prof")
+
+    def test_fallback_regex_no_nome(self):
+        d = {"structured_authors": [], "name": "Direito Penal para X - Prof. Renan Araújo"}
+        self.assertEqual(parse_blocos.nomes_dos_autores(d), "Prof. Renan Araújo")
+        self.assertEqual(parse_blocos.nomes_dos_autores({"name": "Curso sem prof"}), "")
+
+
 class TestContagens(unittest.TestCase):
     def test_soma_por_familia_e_outros(self):
         item = {"block_type_count": {"videoMyDocuments": 2, "youtube": 1,
@@ -73,9 +144,9 @@ class TestMetaDoBloco(unittest.TestCase):
         self.assertEqual(m["resposta_tipo"], "TRUE_OR_FALSE")
         self.assertEqual(m["tem_solucao"], 1)
         self.assertEqual(m["tem_video_solucao"], 0)
-        self.assertEqual(m["meta"]["topicos"], ["Escrituração"])
-        self.assertEqual(m["meta"]["provas"], ["CESPE 2020"])
         self.assertEqual(m["meta"]["qtd_alternativas"], 2)
+        # fixture antiga usa topics[].name / exams[].name (formato que a API real não usa)
+        self.assertEqual(m["meta"]["topico"], "")
 
     def test_video_id_antigo_com_ponto_de_milhar(self):
         m = parse_blocos.meta_do_bloco(BLOCO_VIDEO)

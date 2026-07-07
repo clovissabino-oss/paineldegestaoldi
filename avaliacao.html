@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avaliação de Livro/Disciplina</title>
+<style>
+  :root {
+    --surface: #fcfcfb; --card: #f4f4f2; --border: #e3e2dd;
+    --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #8a897f;
+    --accent: #2a78d6; --auto-bg: #eef4fc;
+    --warn: #a06b00; --crit: #b23230; --ok: #1c6e38;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19; --card: #232322; --border: #383734;
+      --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8a897f;
+      --accent: #3987e5; --auto-bg: #1d2836;
+      --warn: #e5b04a; --crit: #e66767; --ok: #63c584;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface); color: var(--ink);
+         font: 14.5px/1.5 "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px 24px 70px; }
+  .eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+             color: var(--accent); font-weight: 600; margin: 0 0 6px; }
+  .eyebrow a { color: var(--ink-3); text-decoration: none; margin-right: 10px; }
+  h1 { font-size: 21px; font-weight: 650; margin: 0 0 2px; text-wrap: balance; }
+  .sub { color: var(--ink-2); font-size: 13px; margin: 0 0 16px; max-width: 80ch; }
+
+  .barra { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+  .barra label { font-size: 12.5px; color: var(--ink-2); }
+  .barra select, .btn { font: inherit; font-size: 13px; color: var(--ink); background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 11px; max-width: 460px; }
+  .btn { font-weight: 600; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primario { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 11px 14px 9px; }
+  .kpi .n { font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 11.5px; color: var(--ink-2); }
+
+  .tbl-box { border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 1080px; }
+  th { position: sticky; top: 0; background: var(--card); color: var(--accent); font-size: 10.5px;
+       letter-spacing: .05em; text-transform: uppercase; font-weight: 650; text-align: left;
+       padding: 9px 11px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th:first-child { color: var(--ink-2); }
+  td { padding: 10px 11px; border-bottom: 1px solid var(--border); vertical-align: top; background: var(--auto-bg); }
+  td:first-child { background: transparent; }
+  tr:last-child td { border-bottom: 0; }
+  .cap-nm { font-weight: 600; min-width: 200px; }
+  .cap-nm small { display: block; color: var(--ink-3); font-weight: 400; }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pct-bar { display: flex; height: 10px; border-radius: 4px; overflow: hidden; margin-top: 4px; min-width: 120px; }
+  .pct-bar i.r { background: var(--crit); } .pct-bar i.a { background: var(--warn); } .pct-bar i.v { background: var(--ok); }
+  .pct-leg { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+  .sol { white-space: nowrap; }
+  .sol b { font-variant-numeric: tabular-nums; }
+  .sol .pct { color: var(--ink-3); font-size: 12px; }
+  .vazio { color: var(--ink-3); }
+  .foot-note { font-size: 12.5px; color: var(--ink-3); margin-top: 16px; max-width: 86ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow"><a href="/">← visão geral</a> Painel de Conteúdo · avaliação de livro/disciplina</p>
+  <h1 id="titulo">Escolha uma disciplina</h1>
+  <p class="sub" id="autores"></p>
+
+  <div class="barra">
+    <label>Disciplina:
+      <select id="selCurso"><option value="">carregando...</option></select>
+    </label>
+    <label>Banca-alvo:
+      <select id="selBanca"><option value="">— sem banca-alvo —</option></select>
+    </label>
+    <button class="btn" onclick="baixarCSV()">⬇ CSV (Excel)</button>
+    <button class="btn primario" onclick="window.print()">🖨 Imprimir / PDF</button>
+  </div>
+
+  <div class="dash" id="dash"></div>
+
+  <div class="tbl-box"><table id="tbl">
+    <thead><tr>
+      <th>Capítulo (LDI)</th>
+      <th>Questões<br>emb. + texto</th>
+      <th data-alvo>Distribuição<br>por banca</th>
+      <th id="thAnosQ">% por ano da prova</th>
+      <th>Soluções das questões<br>em texto · em vídeo</th>
+      <th>Vídeos<br>qtd · tempo</th>
+      <th id="thAnosV">% por ano de gravação</th>
+    </tr></thead>
+    <tbody id="corpo"></tbody>
+  </table></div>
+
+  <p class="foot-note"><b>Notas:</b> percentuais de ano sobre o universo com dado (questões com prova
+  identificada; vídeos com gravação casada no Metabase). "Soluções" mede as questões embedadas
+  (gabarito e vídeo de resolução do banco de questões); nas coladas em texto a solução faz parte do
+  corpo da aula. Régua 2/5: vermelho = mais de 5 anos, amarelo = 3 a 5, verde = até 2.</p>
+</div>
+
+<script>
+  const fmt = n => (n || 0).toLocaleString("pt-BR");
+  const dur = s => { const h = Math.floor(s / 3600), m = Math.round(s % 3600 / 60);
+                     return h ? `${h}h${String(m).padStart(2, "0")}` : `${m}min`; };
+  const pc = (n, t) => t ? Math.round(n / t * 100) + "%" : "—";
+  const ANO = new Date().getFullYear();
+  const ROTULO = `≤${ANO - 6} · ${String(ANO - 5).slice(2)}-${String(ANO - 3).slice(2)} · ${String(ANO - 2).slice(2)}-${String(ANO).slice(2)}`;
+  document.getElementById("thAnosQ").innerHTML = `% por ano da prova<br>${ROTULO}`;
+  document.getElementById("thAnosV").innerHTML = `% por ano de gravação<br>${ROTULO}`;
+
+  let D = null;
+
+  async function carregarCursos() {
+    const r = await fetch("/api/cursos");
+    const cursos = (await r.json()).data;
+    const sel = document.getElementById("selCurso");
+    sel.innerHTML = '<option value="">— escolha —</option>' + cursos.map(c =>
+      `<option value="${c.curso_id}">${c.nome.trim()}</option>`).join("");
+    sel.addEventListener("change", () => sel.value && carregarAvaliacao(sel.value));
+    if (cursos.length === 1) { sel.value = cursos[0].curso_id; carregarAvaliacao(sel.value); }
+  }
+
+  async function carregarAvaliacao(cursoId) {
+    const r = await fetch("/api/avaliacao?curso_id=" + encodeURIComponent(cursoId));
+    D = (await r.json()).data;
+    document.getElementById("titulo").textContent = D.curso.trim();
+    document.getElementById("autores").textContent = D.autores || "";
+    // bancas presentes -> seletor (ordenado por frequência)
+    const todas = {};
+    D.capitulos.forEach(c => Object.entries(c.bancas).forEach(([b, n]) => todas[b] = (todas[b] || 0) + n));
+    const sel = document.getElementById("selBanca");
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">— sem banca-alvo —</option>' +
+      Object.entries(todas).sort((a, b) => b[1] - a[1]).map(([b]) =>
+        `<option ${b === atual ? "selected" : ""}>${b}</option>`).join("");
+    render();
+  }
+  document.getElementById("selBanca").addEventListener("change", render);
+
+  const faixaHtml = (a, b, c, tot) => tot ? `
+    <span class="num">${pc(a, tot)} · ${pc(b, tot)} · ${pc(c, tot)}</span>
+    <div class="pct-bar"><i class="r" style="flex:${a || 0}"></i><i class="a" style="flex:${b || 0}"></i><i class="v" style="flex:${c || 0}"></i></div>`
+    : '<span class="vazio">—</span>';
+
+  function alvoDe(c) {
+    const banca = document.getElementById("selBanca").value;
+    return banca ? (c.bancas[banca] || 0) : null;
+  }
+
+  function render() {
+    if (!D) return;
+    const banca = document.getElementById("selBanca").value;
+    document.querySelector("[data-alvo]").innerHTML = banca
+      ? "Qtd. banca-alvo /<br>outras · %" : "Distribuição<br>por banca";
+    document.getElementById("corpo").innerHTML = D.capitulos.map(c => {
+      const totQ = c.q_emb + c.q_txt;
+      const alvo = alvoDe(c);
+      const bancasTxt = Object.entries(c.bancas).sort((x, y) => y[1] - x[1]).slice(0, 3)
+        .map(([b, n]) => `${b.replace(" (CEBRASPE)", "")}: ${n}`).join("<br>") || "—";
+      return `<tr>
+        <td class="cap-nm">${c.nome}<small>${c.aulas} aulas</small></td>
+        <td class="num">${fmt(totQ)}<br><small style="color:var(--ink-3)">${c.q_emb} emb. + ${c.q_txt} texto</small></td>
+        <td class="num">${totQ === 0 ? '<span class="vazio">—</span>' : banca
+          ? `${alvo} / ${totQ - alvo}<br><b>${pc(alvo, totQ)}</b> banca-alvo`
+          : `<small>${bancasTxt}</small>`}</td>
+        <td>${faixaHtml(c.q_ate, c.q_meio, c.q_novo, c.q_com_ano)}
+          ${c.q_com_ano ? `<div class="pct-leg">${c.q_com_ano} com prova identificada</div>` : ""}</td>
+        <td class="sol">${c.q_emb === 0 ? '<span class="vazio">' + (c.q_txt ? "— (só em texto)" : "—") + "</span>" : `
+          📝 <b>${c.sol_texto}</b> <span class="pct">(${pc(c.sol_texto, c.q_emb)})</span> ·
+          🎬 <b>${c.sol_video}</b> <span class="pct">(${pc(c.sol_video, c.q_emb)})</span><br>
+          <span class="pct">das ${c.q_emb} embedadas</span>`}</td>
+        <td class="num">${c.vids} · ${dur(c.dur)}</td>
+        <td>${faixaHtml(c.v_ate, c.v_meio, c.v_novo, c.v_com_data)}
+          ${c.vids ? `<div class="pct-leg">${c.v_com_data} de ${c.vids} com data real</div>` : ""}</td>
+      </tr>`;
+    }).join("");
+
+    const tot = k => D.capitulos.reduce((s, c) => s + (c[k] || 0), 0);
+    const totQ = tot("q_emb") + tot("q_txt");
+    const totAlvo = banca ? D.capitulos.reduce((s, c) => s + (c.bancas[banca] || 0), 0) : null;
+    document.getElementById("dash").innerHTML = [
+      { n: D.capitulos.length, l: "capítulos" },
+      { n: fmt(totQ), l: "questões (emb. + texto)" },
+      banca ? { n: pc(totAlvo, totQ), l: "% banca-alvo" } : null,
+      { n: pc(tot("q_novo"), tot("q_com_ano")), l: `% questões ${ANO - 2}-${ANO}` },
+      { n: pc(tot("sol_texto"), tot("q_emb")), l: "embedadas c/ solução em texto" },
+      { n: pc(tot("sol_video"), tot("q_emb")), l: "embedadas c/ vídeo-solução" },
+      { n: fmt(tot("vids")) + " · " + dur(tot("dur")), l: "vídeos · tempo total" },
+      { n: pc(tot("v_novo"), tot("v_com_data")), l: `% vídeos gravados ${ANO - 2}-${ANO}` },
+    ].filter(Boolean).map(k =>
+      `<div class="kpi"><div class="n">${k.n}</div><div class="l">${k.l}</div></div>`).join("");
+  }
+
+  function baixarCSV() {
+    if (!D) return;
+    const banca = document.getElementById("selBanca").value;
+    const esc = s => `"${String(s ?? "").replace(/"/g, '""')}"`;
+    const linhas = [["capitulo", "aulas", "questoes_total", "questoes_embedadas", "questoes_em_texto",
+      "qtd_banca_alvo", "qtd_outras_bancas", "pct_banca_alvo",
+      "pct_prova_faixa_critica", "pct_prova_faixa_media", "pct_prova_faixa_recente", "questoes_com_prova",
+      "emb_com_solucao_texto", "emb_com_video_solucao",
+      "videos", "tempo_videos", "videos_com_data",
+      "pct_grav_faixa_critica", "pct_grav_faixa_media", "pct_grav_faixa_recente"]];
+    D.capitulos.forEach(c => {
+      const totQ = c.q_emb + c.q_txt;
+      const alvo = banca ? (c.bancas[banca] || 0) : "";
+      linhas.push([c.nome, c.aulas, totQ, c.q_emb, c.q_txt,
+        alvo, banca ? totQ - alvo : "", banca ? pc(alvo, totQ) : "",
+        pc(c.q_ate, c.q_com_ano), pc(c.q_meio, c.q_com_ano), pc(c.q_novo, c.q_com_ano), c.q_com_ano,
+        c.sol_texto, c.sol_video, c.vids, dur(c.dur), c.v_com_data,
+        pc(c.v_ate, c.v_com_data), pc(c.v_meio, c.v_com_data), pc(c.v_novo, c.v_com_data)]);
+    });
+    const csv = "﻿" + linhas.map(l => l.map(esc).join(";")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.download = "avaliacao_" + (D.curso || "disciplina").trim().slice(0, 40).replace(/\W+/g, "_") + ".csv";
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  carregarCursos();
+</script>
+</body>
+</html>

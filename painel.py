@@ -10,13 +10,15 @@
 ============================================================
 """
 import argparse
+import gzip
 import json
 import os
 import sys
 import threading
 import webbrowser
+from datetime import datetime
 
-from flask import Flask, Response
+from flask import Flask, Response, request
 
 import banco_conteudo
 
@@ -97,6 +99,81 @@ def dados_do_snapshot(con):
     }
 
 
+_DEPARA = {"cache": None, "carregado": False}
+
+
+def _depara():
+    """Cache do de→para do Metabase (gravação real), carregado 1× por processo."""
+    if not _DEPARA["carregado"]:
+        _DEPARA["carregado"] = True
+        caminho = os.path.join(PASTA_APP, "saida", "metabase_depara.json.gz")
+        if os.path.exists(caminho):
+            with gzip.open(caminho, "rt", encoding="utf-8") as f:
+                _DEPARA["cache"] = json.load(f)
+    return _DEPARA["cache"]
+
+
+def dados_avaliacao(con, curso_id, depara=None):
+    """Planilha de avaliação por capítulo do LDI (formato aprovado — mockup v6)."""
+    e = con.execute("SELECT MAX(extracao_id) FROM cursos WHERE curso_id=?",
+                    (curso_id,)).fetchone()[0]
+    curso = con.execute("SELECT nome, autores FROM cursos WHERE extracao_id=? AND curso_id=?",
+                        (e, curso_id)).fetchone()
+    ano_atual = datetime.now().year
+    corte_crit, corte_aten = ano_atual - 6, ano_atual - 3
+
+    caps = []
+    for cap in con.execute("SELECT capitulo_id, nome FROM capitulos "
+                           "WHERE extracao_id=? AND curso_id=? ORDER BY ordem", (e, curso_id)):
+        itens = [r[0] for r in con.execute(
+            "SELECT item_id FROM aulas WHERE extracao_id=? AND curso_id=? AND capitulo_id=?",
+            (e, curso_id, cap["capitulo_id"]))]
+        c = {"nome": cap["nome"], "aulas": len(itens), "q_emb": 0, "q_txt": 0,
+             "bancas": {}, "q_ate": 0, "q_meio": 0, "q_novo": 0, "q_com_ano": 0,
+             "sol_texto": 0, "sol_video": 0, "vids": 0, "dur": 0,
+             "v_com_data": 0, "v_ate": 0, "v_meio": 0, "v_novo": 0}
+        caps.append(c)
+        if not itens:
+            continue
+
+        def faixa(pref, ano):
+            c["q_com_ano" if pref == "q" else "v_com_data"] += 1
+            if ano <= corte_crit:
+                c[f"{pref}_ate"] += 1
+            elif ano <= corte_aten:
+                c[f"{pref}_meio"] += 1
+            else:
+                c[f"{pref}_novo"] += 1
+
+        marks = ",".join("?" * len(itens))
+        for b in con.execute(
+                f"SELECT tipo, banca, ano, tem_solucao, tem_video_solucao, video_id_antigo, "
+                f"duracao_seg, qtd_questoes_texto, meta FROM blocos "
+                f"WHERE extracao_id=? AND item_id IN ({marks})", (e, *itens)):
+            if b["tipo"] == "question":
+                c["q_emb"] += 1
+                c["sol_texto"] += b["tem_solucao"] or 0
+                c["sol_video"] += b["tem_video_solucao"] or 0
+                if b["banca"]:
+                    c["bancas"][b["banca"]] = c["bancas"].get(b["banca"], 0) + 1
+                if b["ano"]:
+                    faixa("q", b["ano"])
+            elif b["tipo"] == "tiptap" and (b["qtd_questoes_texto"] or 0) > 0:
+                c["q_txt"] += b["qtd_questoes_texto"]
+                for ref in (json.loads(b["meta"] or "{}").get("questoes_texto") or []):
+                    if ref.get("banca"):
+                        c["bancas"][ref["banca"]] = c["bancas"].get(ref["banca"], 0) + 1
+                    if ref.get("ano"):
+                        faixa("q", ref["ano"])
+            elif b["tipo"] in ("videoMyDocuments", "cast", "youtube"):
+                c["vids"] += 1
+                c["dur"] += b["duracao_seg"] or 0
+                data = ((depara or {}).get(b["video_id_antigo"]) or {}).get("data") or ""
+                if data[:4].isdigit():
+                    faixa("v", int(data[:4]))
+    return {"curso": curso["nome"], "autores": curso["autores"] or "", "capitulos": caps}
+
+
 def _html():
     # embutida no exe via --add-data (mesmo padrão da ui.html do Visualizador)
     caminho = os.path.join(getattr(sys, "_MEIPASS", PASTA_APP), "painel.html")
@@ -120,6 +197,49 @@ def index():
                         "e recarregue esta página.</p>", mimetype="text/html")
     html = _html().replace("__DADOS__", json.dumps(dados, ensure_ascii=False))
     return Response(html, mimetype="text/html")
+
+
+@app.route("/avaliacao")
+def avaliacao():
+    caminho = os.path.join(getattr(sys, "_MEIPASS", PASTA_APP), "avaliacao.html")
+    with open(caminho, encoding="utf-8") as f:
+        return Response(f.read(), mimetype="text/html")
+
+
+@app.route("/api/cursos")
+def api_cursos():
+    con = banco_conteudo.abrir(caminho_banco())
+    try:
+        e = con.execute("SELECT MAX(id) FROM extracoes").fetchone()[0] or 0
+        rows = [dict(r) for r in con.execute(
+            "SELECT c.curso_id, c.nome, c.autores FROM cursos c WHERE c.extracao_id=? "
+            "AND EXISTS (SELECT 1 FROM aulas a WHERE a.extracao_id=c.extracao_id "
+            "AND a.curso_id=c.curso_id) ORDER BY c.nome", (e,))]
+    finally:
+        con.close()
+    return {"data": rows}
+
+
+@app.route("/api/avaliacao")
+def api_avaliacao():
+    con = banco_conteudo.abrir(caminho_banco())
+    try:
+        dados = dados_avaliacao(con, request.args.get("curso_id", ""), depara=_depara())
+    finally:
+        con.close()
+    return {"data": dados}
+
+
+@app.route("/api/pendencias/resumo")
+def api_pendencias_resumo():
+    con = banco_conteudo.abrir(caminho_banco())
+    try:
+        rows = con.execute("SELECT severidade, regra, COUNT(*) FROM pendencias "
+                           "WHERE status IN ('nova','enviada') GROUP BY severidade, regra")
+        resumo = [dict(severidade=r[0], regra=r[1], abertas=r[2]) for r in rows]
+    finally:
+        con.close()
+    return {"data": resumo}
 
 
 def main():

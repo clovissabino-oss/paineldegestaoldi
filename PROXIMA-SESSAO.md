@@ -1,6 +1,6 @@
 # 🎬 Extrator LDI — Estado atual (norte da próxima sessão)
 
-_Última atualização: 06/07/2026 (sessão 5: fundação do Painel de Conteúdo — coletor + base SQLite)._
+_Última atualização: 07/07/2026 (sessão 6: fase 2 — planilha de Avaliação + motor de qualidade + coletor v1.1)._
 
 Este arquivo é o **ponto de partida** de qualquer nova sessão. Para o passo a passo
 de uso, veja o `TUTORIAL.md`. Para a visão do projeto, a memória do Claude
@@ -178,6 +178,43 @@ claro do 401 funcionou como projetado.)
 **Fases seguintes (specs próprios na hora certa):** 2-Inventário (painel.py porta 8766),
 3-Qualidade (regras SQL), 4-Evolução (diff snapshots), 5-Migração de questões (investigar
 se existe fonte do sistema antigo para questões, como a 19885 é para vídeos).
+
+## ✅ Sessão 6 (06-07/07): fase 2 — Avaliação de disciplina + controle de qualidade
+
+Norte definido com o Luiz a partir do `Modelo de Planilha - Dados.xlsx` (levantamento da PRF):
+o produto principal é a **planilha de Avaliação por livro/disciplina, 100% automática** (sem
+colunas de julgamento — decisão dele), com o motor de pendências por trás. Mockups iterados
+até aprovação (v6) e modelo de QC publicado como Artifact. Specs/planos:
+`docs\superpowers\{specs,plans}\2026-07-06-*`.
+
+**Construído (branch `feat/fase2-avaliacao-qualidade`, TDD, 38 testes verdes):**
+- **Coletor v1.1**: banca/ano das questões (objeto `exams.year`+`badges` — a listagem
+  `authors_name` vem `None`; nomes agora do `GET /bo/ldi/courses/{id}` → `structured_authors`),
+  tópicos (`path_name`), **detector de questões coladas no texto** (regex `(BANCA/ANO/...)`
+  no conteúdo tiptap durante a coleta — só metadados, nunca o texto), migração idempotente
+  (colunas `banca`/`ano`/`qtd_questoes_texto` + índice `ix_blocos_item`).
+- **`regras_qualidade.py`**: catálogo declarativo (Q1/Q2/V1/V2/C1/A1/A3/B1; A2 informativa),
+  pendências materializadas com chave determinística, **baixa automática** no snapshot
+  seguinte (resolvida sozinha se sumiu; reabre se voltou; ignorada nunca reabre). Roda ao
+  fim de cada coleta.
+- **`painel.py` + `avaliacao.html`**: rota `/avaliacao` — seletor de disciplina + banca-alvo
+  (opcional), tabela por capítulo (questões emb.+texto, bancas, % por ano da prova, soluções
+  📝/🎬, vídeos qtd·tempo, % por ano de gravação real via cache do de→para), dashboard e
+  ⬇CSV. APIs: `/api/cursos`, `/api/avaliacao`, `/api/pendencias/resumo`.
+
+**Verificado com dados reais (snapshot #2 do BACEN, 07/07):** 99,4% das questões com banca
+(40.726; CESPE 16.890), 997 questões em texto, professores em 126/128 cursos, 157.309
+pendências (Q1 críticas 33.262 · Q2 108.341 · V1 8.940 · V2 11 · A1 3.457 · A3 3.277 ·
+C1 21). `/avaliacao` do Direito Penal bate com o mockup aprovado.
+
+**⚠ Notas para a próxima sessão:**
+- **Q2 (questão desatualizada) gerou 108 mil pendências** — a régua por questão é fiel à
+  decisão do Luiz, mas o volume sugere discutir agregação por aula no acionamento (fase 2.1).
+- **Fase 2.1 (backlog priorizado):** tela rica de Pendências (mockup v3: por professor/curso,
+  status enviada/resolvida na tela, relatório/CSV de acionamento) — o motor e a API já dão
+  o dado; falta a tela. Investigar também o `block_type_count` da árvore (conta versões:
+  163 vs 53 no Direito Penal) e o capítulo vazio ("24. Crimes..." com 0 aulas) que a tela expôs.
+- Coletas antigas (snapshot #1) não têm banca/questões-texto (colunas NULL) — normal.
 
 ---
 

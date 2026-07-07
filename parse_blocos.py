@@ -4,12 +4,54 @@
 É a camada com maior risco quando a API mudar — por isso é pura e testada
 com payloads reais (tests/test_parse_blocos.py).
 """
+import re
+
 import extrator_ldi
 
 # famílias de contagem (chaves do block_type_count da árvore)
 _VIDEOS = ("videoMyDocuments", "youtube")
 _MAPA = {"question": "qtd_questoes", "tiptap": "qtd_textos",
          "pdfMyDocuments": "qtd_pdfs", "cast": "qtd_casts"}
+
+# questões coladas no corpo do texto: "(BANCA/ANO/Órgão...)" — padrão real do LDI
+_RX_QUESTAO_TEXTO = re.compile(
+    r"\((CESPE[^/)]*|CEBRASPE[^/)]*|FGV|FCC|VUNESP|IADES|ESAF|CESGRANRIO|AOCP|QUADRIX|"
+    r"Banca\s+[^/)]+|Instituto\s+[^/)]+|In[eé]ditas?[^/)]*)\s*[/\-–]\s*(\d{4})([^)]*)\)",
+    re.I)
+_RX_PROF_NO_NOME = re.compile(r"[-–]\s*(Profs?\.\s*[^-–]+?)\s*$", re.I)
+
+
+def _texto_do_no(no, acc):
+    if isinstance(no, dict):
+        if isinstance(no.get("text"), str):
+            acc.append(no["text"])
+        for v in no.values():
+            _texto_do_no(v, acc)
+    elif isinstance(no, list):
+        for v in no:
+            _texto_do_no(v, acc)
+    return acc
+
+
+def questoes_no_texto(conteudo):
+    """Refs de questões coladas no corpo do tiptap -> [{banca, ano, resto}]. Nunca guarda o texto."""
+    if not conteudo:
+        return []
+    txt = " ".join(_texto_do_no(conteudo, []))
+    return [{"banca": m.group(1).strip(), "ano": int(m.group(2)),
+             "resto": m.group(3).strip(" /-–")[:60]}
+            for m in _RX_QUESTAO_TEXTO.finditer(txt)]
+
+
+def nomes_dos_autores(detalhe_curso):
+    """Nomes do GET /bo/ldi/courses/{id} (structured_authors); fallback: 'Prof. X' no nome."""
+    nomes = [a.get("full_name") or a.get("public_name") or ""
+             for a in (detalhe_curso.get("structured_authors") or []) if isinstance(a, dict)]
+    nomes = [n for n in nomes if n]
+    if nomes:
+        return " | ".join(nomes)
+    m = _RX_PROF_NO_NOME.search(detalhe_curso.get("name") or "")
+    return m.group(1).strip() if m else ""
 
 
 def contagens_da_aula(item):
@@ -53,6 +95,7 @@ def meta_do_bloco(bloco):
         "questao_id": "", "resposta_tipo": "",
         "tem_solucao": None, "tem_video_solucao": None,
         "video_id_antigo": "", "duracao_seg": None, "tamanho_texto": None,
+        "banca": "", "ano": None, "qtd_questoes_texto": None,
         "meta": {},
     }
     if tipo == "question":
@@ -61,12 +104,21 @@ def meta_do_bloco(bloco):
         linha["resposta_tipo"] = res.get("answer_type", "")
         linha["tem_solucao"] = 1 if (sol.get("brief") or sol.get("complete")) else 0
         linha["tem_video_solucao"] = 1 if res.get("has_video_solution") else 0
+        exs = res.get("exams") or []
+        e0 = exs[0] if exs and isinstance(exs[0], dict) else {}
+        badges = [b.get("text", "") for b in (e0.get("badges") or [])
+                  if isinstance(b, dict) and b.get("type") != "YEAR" and b.get("text")]
+        topicos = [t for t in (res.get("topics") or []) if isinstance(t, dict)]
+        principal = next((t for t in topicos if t.get("is_main_classification")),
+                         topicos[0] if topicos else None)
+        caminho = (principal or {}).get("path_name") or []
+        linha["banca"] = badges[0] if badges else ""
+        linha["ano"] = e0.get("year")
         linha["meta"] = {
             "slug": res.get("slug", ""),
-            "topicos": [t.get("name") for t in (res.get("topics") or [])
-                        if isinstance(t, dict) and t.get("name")],
-            "provas": [e.get("name") for e in (res.get("exams") or [])
-                       if isinstance(e, dict) and e.get("name")],
+            "orgao": badges[1] if len(badges) > 1 else "",
+            "topico": caminho[-1] if caminho else "",
+            "topico_caminho": " > ".join(caminho),
             "qtd_alternativas": len(res.get("alternatives") or []),
         }
     elif tipo in extrator_ldi.TIPOS_VIDEO:
@@ -84,6 +136,10 @@ def meta_do_bloco(bloco):
     elif tipo == "tiptap":
         linha["tamanho_texto"] = (bloco.get("content_length")
                                   or d.get("block_content_length") or 0)
+        refs = questoes_no_texto(d.get("content"))
+        linha["qtd_questoes_texto"] = len(refs)
+        if refs:
+            linha["meta"] = {"questoes_texto": refs[:200]}
     elif tipo == "pdfMyDocuments":
         linha["meta"] = {"media_id": res.get("id", "") or d.get("value", ""),
                          "criado_em": res.get("created_at", "")}

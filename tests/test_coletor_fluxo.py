@@ -46,6 +46,12 @@ class SessaoFake:
         self.falhas, self.status_falha = set(falhas), status_falha
 
     def get(self, url, timeout=0):
+        if "/bo/ldi/courses/" in url:  # detalhe do curso (autores)
+            cid = url.rsplit("/", 1)[1]
+            if cid == "c1":
+                return RespostaFake(200, {"id": cid, "structured_authors":
+                                          [{"full_name": "Prof Teste"}]})
+            return RespostaFake(404)
         item = url.split("item_id=")[1]
         if item in self.falhas:
             return RespostaFake(self.status_falha)
@@ -96,6 +102,14 @@ class TestColetar(unittest.TestCase):
     def test_continuar_sem_coleta_aberta_falha_claro(self):
         with self.assertRaises(SystemExit):
             coletor_ldi.coletar(CFG, SessaoFake(), "BACEN", self.db, continuar=True)
+
+    def test_coleta_preenche_autores_do_detalhe(self):
+        eid = coletor_ldi.coletar(CFG, SessaoFake(), "BACEN", self.db)
+        con = banco_conteudo.abrir(self.db)
+        row = con.execute("SELECT autores FROM cursos WHERE extracao_id=? AND curso_id='c1'",
+                          (eid,)).fetchone()
+        self.assertEqual(row["autores"], "Prof Teste")
+        con.close()
 
     def test_com_videos_emite_arquivo_classico(self):
         cfg = dict(CFG, pasta_saida=self.dir.name, incluir_url=False)
