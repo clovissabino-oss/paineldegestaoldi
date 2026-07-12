@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 
 import requests
 
@@ -101,7 +102,8 @@ def enviar(rows, url=None, key=None):
     png.raise_for_status()
 
     # 1. upsert do snapshot (pronto=false), devolve o id
-    corpo = {**rows["snapshot"], "pronto": False}
+    corpo = {**rows["snapshot"], "pronto": False,
+             "sincronizado_em": datetime.now().isoformat(timespec="seconds")}
     r = requests.post(f"{rest}/snapshot", headers=_headers(
         key, "resolution=merge-duplicates,return=representation"),
         params={"on_conflict": "termo,extracao_local"}, json=corpo, timeout=60)
