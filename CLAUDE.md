@@ -103,7 +103,11 @@ telas com login **magic-link por convite** (Supabase Auth, sessão em cookie via
 **cópias** das da raiz com 3 edições cada (link sair, selo de frescor, estado vazio) —
 mudou a tela da raiz, replicar na cópia. As telas chamam `/api/...` (handlers Next com o
 JWT do usuário — NÃO usar supabase-js no navegador: sessão em localStorage é incompatível
-com o gate por cookie). Nunca usar a service_role no `web\`.
+com o gate por cookie). Service_role no app: só no módulo server-only
+`web\lib\supabase\admin.ts` (env `SUPABASE_SERVICE_KEY`, sem NEXT_PUBLIC_) — nunca em
+componente cliente/navegador. Acesso: @estrategia.com entra direto pelo login (auto-
+provisionado); externos por convite na tela `/admin` (admin = `app_metadata.role="admin"`;
+hoje só o Luiz).
 
 - **Supabase**: projeto na conta **Estratégia** (ref `zpjsoidxhfwziprjxpqx`) — NUNCA o
   Supabase pessoal do Luiz. Credenciais: `supabase.json` na raiz (service_role, só para o

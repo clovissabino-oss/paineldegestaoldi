@@ -267,6 +267,15 @@ Plano executado com subagentes (implementador + revisor por task, 2 fixes de rev
 - Build limpo, gate verificado por curl (307 → /login). `.env.local` gitignored
   (anon key placeholder até o Luiz colar a real).
 
+**Acesso por domínio + tela /admin (mesma sessão, spec+plano 2026-07-19):**
+@estrategia.com entra direto pelo login (auto-provisionado via admin API, `disable_signup`
+segue ligado); externos só por convite, agora pela tela **`/admin`** (convidar/listar/
+remover; admin = `app_metadata.role="admin"`, hoje só o Luiz — já gravado no usuário).
+Service_role server-only em `web\lib\supabase\admin.ts` (`SUPABASE_SERVICE_KEY`, sem
+NEXT_PUBLIC_; conferido ausente do bundle do navegador). E-mail: SMTP do **Resend**
+plugado no Supabase Auth (remetente painel@infosab.com.br), signup off, templates pt-BR,
+rate limit 30/h. Convite enviado ao Luiz (pendente de aceite no 1º teste).
+
 **⚠ Para o app entrar no ar falta SÓ a config manual (Task 5 do plano):** anon key no
 `.env.local`, Dashboard Auth (desligar signup, 2 templates de e-mail com token_hash,
 convidar e-mails, Site URL/Redirect URLs), projeto Vercel (Root Directory `web`, Node 22+,
