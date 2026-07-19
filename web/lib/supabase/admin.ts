@@ -27,5 +27,8 @@ export async function buscarPorEmail(
 export async function listarUsuarios(admin: SupabaseClient): Promise<User[]> {
   const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (error) throw new Error(`listar usuários: ${error.message}`);
+  if (data.users.length === 1000) {
+    console.error("[admin] listUsers devolveu a página cheia (1000) — resultado pode estar truncado.");
+  }
   return data.users;
 }

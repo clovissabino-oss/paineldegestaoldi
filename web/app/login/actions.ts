@@ -20,12 +20,18 @@ export async function enviarLink(formData: FormData) {
   if (email.endsWith(DOMINIO_APROVADO)) {
     if (!usuario) {
       const { error } = await admin.auth.admin.createUser({ email, email_confirm: true });
-      if (error) redirect("/login?msg=erro");
+      if (error) {
+        console.error("[login] criar usuário do domínio:", error.message);
+        redirect("/login?msg=erro");
+      }
     } else if (!usuario.email_confirmed_at) {
       const { error } = await admin.auth.admin.updateUserById(usuario.id, {
         email_confirm: true,
       });
-      if (error) redirect("/login?msg=erro");
+      if (error) {
+        console.error("[login] confirmar usuário do domínio:", error.message);
+        redirect("/login?msg=erro");
+      }
     }
   } else {
     if (!usuario) redirect("/login?msg=convite");
@@ -42,7 +48,11 @@ export async function enviarLink(formData: FormData) {
     email,
     options: { shouldCreateUser: false, emailRedirectTo: `${origem}/auth/confirm` },
   });
-  redirect(error ? "/login?msg=erro" : "/login?msg=enviado");
+  if (error) {
+    console.error("[login] enviar magic link:", error.message);
+    redirect("/login?msg=erro");
+  }
+  redirect("/login?msg=enviado");
 }
 
 // Reenvia o convite APENAS para convidado pendente (existe e não confirmou) —
@@ -56,5 +66,9 @@ export async function reenviarConvite(formData: FormData) {
   if (!usuario || usuario.email_confirmed_at) redirect("/login?msg=convite");
 
   const { error } = await admin.auth.admin.inviteUserByEmail(email);
-  redirect(error ? "/login?msg=erro" : "/login?msg=convite-reenviado");
+  if (error) {
+    console.error("[login] reenviar convite:", error.message);
+    redirect("/login?msg=erro");
+  }
+  redirect("/login?msg=convite-reenviado");
 }

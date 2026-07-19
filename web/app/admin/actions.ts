@@ -22,7 +22,11 @@ export async function convidarUsuario(formData: FormData) {
 
   const admin = criarClienteAdmin();
   const { error } = await admin.auth.admin.inviteUserByEmail(email);
-  redirect(error ? "/admin?msg=erro" : `/admin?msg=convidado&email=${encodeURIComponent(email)}`);
+  if (error) {
+    console.error("[admin] convidar:", error.message);
+    redirect("/admin?msg=erro");
+  }
+  redirect(`/admin?msg=convidado&email=${encodeURIComponent(email)}`);
 }
 
 export async function removerUsuario(formData: FormData) {
@@ -34,5 +38,9 @@ export async function removerUsuario(formData: FormData) {
 
   const admin = criarClienteAdmin();
   const { error } = await admin.auth.admin.deleteUser(id);
-  redirect(error ? "/admin?msg=erro" : `/admin?msg=removido&email=${encodeURIComponent(email)}`);
+  if (error) {
+    console.error("[admin] remover:", error.message);
+    redirect("/admin?msg=erro");
+  }
+  redirect(`/admin?msg=removido&email=${encodeURIComponent(email)}`);
 }
