@@ -73,6 +73,9 @@
   <p class="sub" id="frescor" style="margin-top:-12px"></p>
 
   <div class="barra">
+    <label>Concurso:
+      <select id="selConcurso"><option value="">carregando...</option></select>
+    </label>
     <label>Disciplina:
       <select id="selCurso"><option value="">carregando...</option></select>
     </label>
@@ -115,9 +118,26 @@
   document.getElementById("thAnosV").innerHTML = `% por ano de gravação<br>${ROTULO}`;
 
   let D = null;
+  let TERMO = "";
+
+  async function carregarConcursos() {
+    const r = await fetch("/api/termos");
+    const termos = (await r.json()).data || [];
+    const sel = document.getElementById("selConcurso");
+    if (termos.length <= 1) {
+      sel.closest("label").style.display = "none";
+      TERMO = termos[0] || "";
+      carregarCursos();
+      return;
+    }
+    sel.innerHTML = termos.map(t => `<option>${t}</option>`).join("");
+    TERMO = termos[0];
+    sel.onchange = () => { TERMO = sel.value; carregarCursos(); };
+    carregarCursos();
+  }
 
   async function carregarCursos() {
-    const r = await fetch("/api/cursos");
+    const r = await fetch("/api/cursos?termo=" + encodeURIComponent(TERMO));
     const j = await r.json();
     const cursos = j.data || [];
     if (j.sincronizado_em) {
@@ -133,12 +153,12 @@
     }
     sel.innerHTML = '<option value="">— escolha —</option>' + cursos.map(c =>
       `<option value="${c.curso_id}">${c.nome.trim()}</option>`).join("");
-    sel.addEventListener("change", () => sel.value && carregarAvaliacao(sel.value));
+    sel.onchange = () => sel.value && carregarAvaliacao(sel.value);
     if (cursos.length === 1) { sel.value = cursos[0].curso_id; carregarAvaliacao(sel.value); }
   }
 
   async function carregarAvaliacao(cursoId) {
-    const r = await fetch("/api/avaliacao?curso_id=" + encodeURIComponent(cursoId));
+    const r = await fetch("/api/avaliacao?curso_id=" + encodeURIComponent(cursoId) + "&termo=" + encodeURIComponent(TERMO));
     D = (await r.json()).data;
     document.getElementById("titulo").textContent = D.curso.trim();
     document.getElementById("autores").textContent = D.autores || "";
@@ -234,7 +254,7 @@
     a.click(); URL.revokeObjectURL(a.href);
   }
 
-  carregarCursos();
+  carregarConcursos();
 </script>
 </body>
 </html>
