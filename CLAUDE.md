@@ -115,9 +115,13 @@ hoje só o Luiz).
 - **E-mail do magic link**: o remetente embutido do Supabase é só para dev (rate limit).
   Para o time, plugar SMTP próprio em Auth → SMTP Settings — o Luiz tem **Resend** integrado
   na infosab (outro projeto dele); reusar essa conta/API key.
-- **Git flow**: `main` = produção (deploy Vercel) · `develop` = integração/amadurecimento
-  (a plataforma tende a crescer — meta do Luiz: unificar todas as extrações do LDI) ·
-  `feat/*` = trabalho. Push exige login interativo do Luiz (deixar o comando pronto).
+- **Git flow (enxuto)**: `main` = **produção** (o Vercel deploya a `main`). Trabalho em
+  `feat/*` **curtas e descartáveis** → PR pra `main` → o merge deploya; a branch morre depois.
+  Ajuste pequeno e seguro pode ir direto na `main`. **Sem `develop`** (era um degrau a mais
+  para um dev só; aposentada em 20/07). Se um dia entrar outra pessoa no *desenvolvimento*
+  (não na visualização — o time já vê tudo), reavaliar uma branch de homologação.
+  Push e merge exigem login interativo do Luiz (a integração do GitHub aqui é só leitura) —
+  o merge de PR pode ser feito pelo site do GitHub.
 
 ### Dois cookies, dois sistemas
 
