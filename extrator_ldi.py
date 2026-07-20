@@ -139,6 +139,14 @@ def listar_cursos(sessao, termo):
     return cursos
 
 
+def obter_curso(sessao, curso_id):
+    """Detalhe de um curso pelo ID (UUID). O payload já traz content_tree_cache
+    (capítulos→aulas) e structured_authors — mesmo formato de um item de
+    listar_cursos. Devolve o dict do curso, ou None se a API não trouxer dados."""
+    dados = get_json(sessao, f"{API}/bo/ldi/courses/{curso_id}").get("data")
+    return dados or None
+
+
 _RX_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 # aceita separador de milhar dentro do número: 'videosintra248.487' -> 248487
 _RX_VIDEOSINTRA = re.compile(r"videosintra\s*([\d.,]{3,12})", re.I)
