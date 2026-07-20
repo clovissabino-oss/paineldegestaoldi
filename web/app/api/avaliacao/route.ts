@@ -7,11 +7,13 @@ export const dynamic = "force-dynamic";
 // Devolve o payload PRONTO de painel.dados_avaliacao() gravado pelo sync —
 // mesmo {data: ...} que a tela local consome do Flask.
 export async function GET(request: Request) {
-  const cursoId = new URL(request.url).searchParams.get("curso_id") ?? "";
+  const params = new URL(request.url).searchParams;
+  const cursoId = params.get("curso_id") ?? "";
+  const termo = params.get("termo") ?? undefined;
   const supabase = await criarClienteServidor();
   let snap;
   try {
-    snap = await snapshotAtual(supabase);
+    snap = await snapshotAtual(supabase, termo);
   } catch (e) {
     const erro = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ data: null, erro }, { status: 500 });

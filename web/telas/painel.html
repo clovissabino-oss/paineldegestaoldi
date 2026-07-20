@@ -100,6 +100,7 @@
     <a href="/auth/sair" style="color:inherit;float:right">sair ↪</a></p>
   <h1 id="titulo"></h1>
   <p class="sub">Snapshot mais recente publicado pelo coletor — leitura para o time.</p>
+  <div id="barraConcurso" style="margin:8px 0 4px"></div>
   <div class="chips" id="chips"></div>
 
   <div class="kpis" id="kpis"></div>
@@ -136,6 +137,17 @@
   const D = JSON.parse(document.getElementById("dados").textContent);
   const fmt = n => (n || 0).toLocaleString("pt-BR");
   const K = D.kpis, X = D.achados, E = D.extracao;
+
+  const bc = document.getElementById("barraConcurso");
+  if (D.termos && D.termos.length > 1) {
+    bc.innerHTML = `<label style="font-size:13px;color:var(--ink-2)">Concurso: ` +
+      `<select id="selConcurso" style="font:inherit;font-size:13px;padding:5px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--ink)">` +
+      D.termos.map(t => `<option${t === D.termo_atual ? " selected" : ""}>${t}</option>`).join("") +
+      `</select></label>`;
+    document.getElementById("selConcurso").addEventListener("change", e => {
+      location.search = "?termo=" + encodeURIComponent(e.target.value);
+    });
+  }
 
   document.getElementById("titulo").textContent = `${E.termo} — inventário de conteúdo do BO`;
   document.title = `Painel de Conteúdo — ${E.termo}`;

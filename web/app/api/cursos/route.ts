@@ -6,11 +6,12 @@ export const dynamic = "force-dynamic";
 
 // Mesmo shape do /api/cursos do painel.py (curso_id, nome, autores)
 // + sincronizado_em para o selo de frescor da tela.
-export async function GET() {
+export async function GET(request: Request) {
+  const termo = new URL(request.url).searchParams.get("termo") ?? undefined;
   const supabase = await criarClienteServidor();
   let snap;
   try {
-    snap = await snapshotAtual(supabase);
+    snap = await snapshotAtual(supabase, termo);
   } catch (e) {
     const erro = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ data: null, erro }, { status: 500 });
