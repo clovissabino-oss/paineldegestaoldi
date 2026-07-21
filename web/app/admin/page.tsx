@@ -75,6 +75,8 @@ export default async function PaginaAdmin({
       }}>
         <a href="/" style={{ color: "#8a897f", textDecoration: "none" }}>← painel</a>
         {" "}Painel de Conteúdo · administração de acesso
+        {" · "}
+        <a href="/coleta" style={{ color: "#8a897f", textDecoration: "none" }}>📥 Coleta</a>
       </p>
       <h1 style={{ fontSize: 21, fontWeight: 650, margin: "0 0 4px" }}>Usuários</h1>
 

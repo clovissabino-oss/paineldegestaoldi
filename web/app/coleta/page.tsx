@@ -48,6 +48,12 @@ export default async function PaginaColeta({
       >
         <a href="/" style={{ color: "#8a897f", textDecoration: "none" }}>← painel</a>
         {" "}Painel de Conteúdo · coleta de concursos
+        {souAdmin && (
+          <>
+            {" · "}
+            <a href="/admin" style={{ color: "#8a897f", textDecoration: "none" }}>⚙ Admin</a>
+          </>
+        )}
       </p>
       <h1 style={{ fontSize: 21, fontWeight: 650, margin: "0 0 4px" }}>📥 Coleta de concursos</h1>
       <p style={{ color: "#8a897f", fontSize: 12, margin: "0 0 16px" }}>
