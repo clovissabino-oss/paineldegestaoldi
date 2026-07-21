@@ -24,3 +24,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.log
+
+# Planilha de levantamento (decisão do Luiz sobre versionar fica pendente)
+Modelo de Planilha - Dados.xlsx
