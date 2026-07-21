@@ -10,7 +10,7 @@ sudo apt update && sudo apt install -y python3 python3-pip git
 sudo useradd -r -m -d /opt/extrator-ldi extrator   # usuário de serviço (sem login)
 sudo -u extrator git clone https://github.com/clovissabino-oss/videosldi.git /opt/extrator-ldi
 cd /opt/extrator-ldi
-sudo -u extrator pip install --break-system-packages requests   # o worker só precisa de requests
+sudo apt install -y python3-flask python3-requests   # requests + flask (sync_supabase importa painel, que usa flask)
 ```
 
 ## 2. Configuração (segredos — NÃO vão pro git)
