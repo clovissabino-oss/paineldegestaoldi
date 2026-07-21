@@ -36,6 +36,10 @@ except Exception:
     pass
 
 
+class ColetaCancelada(Exception):
+    """Sinalizado pelo callback de progresso para abortar a coleta em andamento."""
+
+
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 
 def extrair_ids(texto):
@@ -109,11 +113,14 @@ def _completar_autores(sessao, con, extracao_id, cursos, concorrencia):
         print(f"      ({falhas} cursos sem professor identificado)")
 
 
-def _baixar_lote(sessao, con, extracao_id, pendentes, concorrencia, videos_por_item=None):
+def _baixar_lote(sessao, con, extracao_id, pendentes, concorrencia,
+                 videos_por_item=None, progresso=None):
     """Baixa e grava as aulas pendentes; devolve {item_id: erro} das que falharam.
 
     videos_por_item (opcional): dict a preencher com os blocos brutos de vídeo
     de cada aula (memória pequena) — usado pelo --com-videos.
+    progresso (opcional): callable(feito:int, total:int) chamado a cada 20 aulas
+    e ao fim; pode levantar ColetaCancelada para abortar a coleta.
     """
     erros, feitos = {}, 0
     with ThreadPoolExecutor(max_workers=int(concorrencia)) as pool:
@@ -134,6 +141,8 @@ def _baixar_lote(sessao, con, extracao_id, pendentes, concorrencia, videos_por_i
             feitos += 1
             if feitos % 100 == 0 or feitos == len(pendentes):
                 print(f"      ...{feitos}/{len(pendentes)}")
+            if progresso and (feitos % 20 == 0 or feitos == len(pendentes)):
+                progresso(feitos, len(pendentes))  # pode levantar ColetaCancelada
     return erros
 
 
@@ -164,7 +173,8 @@ def _emitir_videos(cfg, termo, pasta, tarefas, videos_por_item):
     print(f"      vídeos clássico: {base}.json/.csv")
 
 
-def coletar(cfg, sessao, termo, caminho_banco, continuar=False, com_videos=False, ids=None):
+def coletar(cfg, sessao, termo, caminho_banco, continuar=False, com_videos=False,
+            ids=None, progresso=None):
     con = banco_conteudo.abrir(caminho_banco)
     try:
         tarefas, videos_por_item = [], ({} if com_videos else None)
@@ -204,11 +214,11 @@ def coletar(cfg, sessao, termo, caminho_banco, continuar=False, com_videos=False
         print(f"[2/4] {len(pendentes)} aulas a baixar")
         print(f"[3/4] Baixando blocos ({cfg['concorrencia']} por vez)...")
         erros = _baixar_lote(sessao, con, extracao_id, pendentes,
-                             cfg["concorrencia"], videos_por_item)
+                             cfg["concorrencia"], videos_por_item, progresso)
         if erros:  # 1 rodada de retry
             print(f"      retry de {len(erros)} aulas com falha...")
             erros = _baixar_lote(sessao, con, extracao_id, list(erros),
-                                 cfg["concorrencia"], videos_por_item)
+                                 cfg["concorrencia"], videos_por_item, progresso)
 
         status = banco_conteudo.finalizar_extracao(con, extracao_id, erros)
         tot = con.execute("SELECT total_aulas, total_blocos FROM extracoes WHERE id=?",
