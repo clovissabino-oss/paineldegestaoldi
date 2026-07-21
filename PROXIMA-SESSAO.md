@@ -45,7 +45,7 @@ Dataset atual: `saida\videos_PRF_2026-07-02.json` (+ .csv), já com todas as col
 
 ## ✅ Sessão 2 (02/07 noite): propostas de substituição + cast fora
 
-1. **Blocos "cast" fora da análise por padrão** (dados não batem — decisão do Luiz).
+1. **Blocos "cast" fora da análise por padrão** (dados não batem — decisão do Clovis).
    Checkbox `cast` em "Tipo de bloco" começa desmarcado; dá para religar na mão.
    O snapshot de "vídeos atuais" das propostas também respeita esse filtro.
 2. **📝 Propostas de substituição de vídeos** — a novidade grande:
@@ -64,7 +64,7 @@ Dataset atual: `saida\videos_PRF_2026-07-02.json` (+ .csv), já com todas as col
      proposta (o relatório fica autossuficiente mesmo trocando a extração).
    - Testado ponta a ponta (API + UI no Chrome com dados da PRF). Ficou **1
      proposta de EXEMPLO** cadastrada (capítulo de Estrutura Organizacional do
-     curso de Administração PRF, marcada "pode excluir") para o Luiz ver o fluxo.
+     curso de Administração PRF, marcada "pode excluir") para o Clovis ver o fluxo.
 3. Nomes de arquivo exportados agora usam data local (antes toISOString/UTC
    virava o dia seguinte à noite).
 
@@ -91,7 +91,7 @@ Dataset atual: `saida\videos_PRF_2026-07-02.json` (+ .csv), já com todas as col
      já foi atualizado para guardar TODOS (`paths`, limite 12) — **vale a partir do
      próximo `--refresh` com Warp ativo**. A tela avisa quando o cache é do formato
      antigo. Backend lê os dois formatos.
-4. **✏️ Preencher IDs (modo coluna)** — feedback do Luiz: o modal era moroso; o
+4. **✏️ Preencher IDs (modo coluna)** — feedback do Clovis: o modal era moroso; o
    fluxo real dele é digitar ID a ID direto na árvore. Botão na barra da árvore
    liga o modo; input inline em capítulo/aula/vídeo; Tab/Enter salva a proposta
    automaticamente e resolve o **nome pelo ID** via `POST /api/estoque/resolver`
@@ -100,7 +100,7 @@ Dataset atual: `saida\videos_PRF_2026-07-02.json` (+ .csv), já com todas as col
 5. **🌳 Estoque** — página nova `estoque.html` servida em `/estoque` (aba própria,
    para usar lado a lado): professor → tópicos → vídeos com botão **⧉ copiar ID**.
    Reusa os endpoints de estoque. Embutida no exe (2º `--add-data`).
-6. **Fonte do estoque trocada (pedido do Luiz)** — preferencial agora são as
+6. **Fonte do estoque trocada (pedido do Clovis)** — preferencial agora são as
    **árvores `arvore_*.xlsx`** de `C:\⚙️ Aplicativos\🦉 Relatório de Cursos - Árvores
    - Professores\6. Limpeza Unificada de Dados\downloads_metabase` (93 professores,
    95 mil vídeos, **todos os caminhos** por vídeo — resolveu a limitação de 1 path
@@ -112,7 +112,7 @@ Dataset atual: `saida\videos_PRF_2026-07-02.json` (+ .csv), já com todas as col
    da pasta da Limpeza. Na mesma pasta há também `cursos_T_*.csv` /
    `cursos_consolidado_*.csv` (curso antigo → vídeos; até 1 GB) — ainda NÃO usados;
    possível fonte futura.
-7. **Professor detectado pelos vídeos, não pelo nome do curso (pedido do Luiz:
+7. **Professor detectado pelos vídeos, não pelo nome do curso (pedido do Clovis:
    "constitucional é a Fauth")** — o modal 🤖 agora vota nas raízes `mb_raiz` dos
    vídeos já vinculados ao alvo e mostra chips "🎯 detectado pelos vídeos
    vinculados"; clicar já carrega a árvore certa. Zero risco de árvore errada.
@@ -145,7 +145,7 @@ Projeto agora versionado em `github.com/clovissabino-oss/videosldi`
 
 ## ✅ Sessão 5 (05-06/07): fundação do Painel de Conteúdo (coletor + conteudo.db)
 
-Decisão do Luiz: ampliar a ferramenta para um **painel de gestão/auditoria de conteúdo do
+Decisão do Clovis: ampliar a ferramenta para um **painel de gestão/auditoria de conteúdo do
 novo BO** (inventário, qualidade, migração, evolução no tempo) — a API `/bo/ldi` entrega
 TUDO que a tela mostra (censo real BACEN: 115.526 questions, 55.690 tiptap, 10.264 vídeos,
 3.048 PDFs em 128 cursos/10.545 aulas), então **Playwright/scraping foi descartado**.
@@ -181,7 +181,7 @@ se existe fonte do sistema antigo para questões, como a 19885 é para vídeos).
 
 ## ✅ Sessão 6 (06-07/07): fase 2 — Avaliação de disciplina + controle de qualidade
 
-Norte definido com o Luiz a partir do `Modelo de Planilha - Dados.xlsx` (levantamento da PRF):
+Norte definido com o Clovis a partir do `Modelo de Planilha - Dados.xlsx` (levantamento da PRF):
 o produto principal é a **planilha de Avaliação por livro/disciplina, 100% automática** (sem
 colunas de julgamento — decisão dele), com o motor de pendências por trás. Mockups iterados
 até aprovação (v6) e modelo de QC publicado como Artifact. Specs/planos:
@@ -209,7 +209,7 @@ C1 21). `/avaliacao` do Direito Penal bate com o mockup aprovado.
 
 **⚠ Notas para a próxima sessão:**
 - **Q2 (questão desatualizada) gerou 108 mil pendências** — a régua por questão é fiel à
-  decisão do Luiz, mas o volume sugere discutir agregação por aula no acionamento (fase 2.1).
+  decisão do Clovis, mas o volume sugere discutir agregação por aula no acionamento (fase 2.1).
 - **Fase 2.1 (backlog priorizado):** tela rica de Pendências (mockup v3: por professor/curso,
   status enviada/resolvida na tela, relatório/CSV de acionamento) — o motor e a API já dão
   o dado; falta a tela. Investigar também o `block_type_count` da árvore (conta versões:
@@ -218,7 +218,7 @@ C1 21). `/avaliacao` do Direito Penal bate com o mockup aprovado.
 
 ## ✅ Sessão 7 (12–19/07): publicação web — fundação Supabase NO AR
 
-Decisão do Luiz: publicar o Painel de Conteúdo como **app web de leitura para o time**
+Decisão do Clovis: publicar o Painel de Conteúdo como **app web de leitura para o time**
 (Supabase = fonte, Vercel = vitrine; a coleta continua local). Spec aprovado:
 `docs\superpowers\specs\2026-07-12-publicacao-web-supabase-vercel-design.md`; plano:
 `docs\superpowers\plans\2026-07-12-fundacao-dados-nuvem-supabase.md`.
@@ -232,7 +232,7 @@ Decisão do Luiz: publicar o Painel de Conteúdo como **app web de leitura para 
 - Gancho não-fatal no `coletor_ldi.py`: publica ao fim de cada coleta.
 
 **✅ Verificado com dados reais (18-19/07):** projeto Supabase criado na **conta da
-Estratégia** (ref `zpjsoidxhfwziprjxpqx` — NUNCA usar o Supabase pessoal do Luiz),
+Estratégia** (ref `zpjsoidxhfwziprjxpqx` — NUNCA usar o Supabase pessoal do Clovis),
 schema aplicado via Management API, `py sync_supabase.py` publicou o snapshot #2 do
 BACEN: **107 cursos em `avaliacao_curso`, 7 linhas de pendência, `pronto=true`**.
 Sem credencial → 401 (RLS ok).
@@ -242,7 +242,7 @@ se sumir de novo, pegar no Dashboard da conta Estratégia → Settings → API. 
 token `sbp_...` usado para aplicar o schema pode (deve) ser revogado — o sync do dia
 a dia só precisa de URL + service_role.
 
-**⚠ Próximos passos da sessão 8:** (a) push da branch (7+ commits locais; o Luiz faz o
+**⚠ Próximos passos da sessão 8:** (a) push da branch (7+ commits locais; o Clovis faz o
 login interativo); (b) **app Next.js no Vercel** — login Supabase Auth magic-link +
 telas lendo `snapshot_atual`/`avaliacao_curso`/`pendencia_resumo` (o payload já vem
 mastigado do sync; o front só renderiza o mesmo `{data: ...}` do painel local).
@@ -265,16 +265,16 @@ Plano executado com subagentes (implementador + revisor por task, 2 fixes de rev
   (byte-idênticas fora das edições — verificado com diff na revisão). Rota `/` injeta
   `__DADOS__` como o Flask; `/avaliacao` consome `/api/cursos` + `/api/avaliacao`.
 - Build limpo, gate verificado por curl (307 → /login). `.env.local` gitignored
-  (anon key placeholder até o Luiz colar a real).
+  (anon key placeholder até o Clovis colar a real).
 
 **Acesso por domínio + tela /admin (mesma sessão, spec+plano 2026-07-19):**
 @estrategia.com entra direto pelo login (auto-provisionado via admin API, `disable_signup`
 segue ligado); externos só por convite, agora pela tela **`/admin`** (convidar/listar/
-remover; admin = `app_metadata.role="admin"`, hoje só o Luiz — já gravado no usuário).
+remover; admin = `app_metadata.role="admin"`, hoje só o Clovis — já gravado no usuário).
 Service_role server-only em `web\lib\supabase\admin.ts` (`SUPABASE_SERVICE_KEY`, sem
 NEXT_PUBLIC_; conferido ausente do bundle do navegador). E-mail: SMTP do **Resend**
 plugado no Supabase Auth (remetente painel@infosab.com.br), signup off, templates pt-BR,
-rate limit 30/h. Convite enviado ao Luiz (pendente de aceite no 1º teste).
+rate limit 30/h. Convite enviado ao Clovis (pendente de aceite no 1º teste).
 
 **⚠ Para o app entrar no ar falta SÓ a config manual (Task 5 do plano):** anon key no
 `.env.local`, Dashboard Auth (desligar signup, 2 templates de e-mail com token_hash,

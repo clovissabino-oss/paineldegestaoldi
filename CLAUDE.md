@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Antes de tudo
 
 Leia **`PROXIMA-SESSAO.md`** — é o ponto de partida oficial de cada sessão: estado atual,
-decisões do Luiz, armadilhas já resolvidas e backlog. O `TUTORIAL.md` tem o passo a passo
+decisões do Clovis, armadilhas já resolvidas e backlog. O `TUTORIAL.md` tem o passo a passo
 de uso leigo e uma "Nota técnica" no final com detalhes da API. Este CLAUDE.md resume o
 que não muda entre sessões.
 
@@ -107,20 +107,20 @@ com o gate por cookie). Service_role no app: só no módulo server-only
 `web\lib\supabase\admin.ts` (env `SUPABASE_SERVICE_KEY`, sem NEXT_PUBLIC_) — nunca em
 componente cliente/navegador. Acesso: @estrategia.com entra direto pelo login (auto-
 provisionado); externos por convite na tela `/admin` (admin = `app_metadata.role="admin"`;
-hoje só o Luiz).
+hoje só o Clovis).
 
 - **Supabase**: projeto na conta **Estratégia** (ref `zpjsoidxhfwziprjxpqx`) — NUNCA o
-  Supabase pessoal do Luiz. Credenciais: `supabase.json` na raiz (service_role, só para o
+  Supabase pessoal do Clovis. Credenciais: `supabase.json` na raiz (service_role, só para o
   sync Python) e `web\.env.local` (anon key) — ambos gitignored.
 - **E-mail do magic link**: o remetente embutido do Supabase é só para dev (rate limit).
-  Para o time, plugar SMTP próprio em Auth → SMTP Settings — o Luiz tem **Resend** integrado
+  Para o time, plugar SMTP próprio em Auth → SMTP Settings — o Clovis tem **Resend** integrado
   na infosab (outro projeto dele); reusar essa conta/API key.
 - **Git flow (enxuto)**: `main` = **produção** (o Vercel deploya a `main`). Trabalho em
   `feat/*` **curtas e descartáveis** → PR pra `main` → o merge deploya; a branch morre depois.
   Ajuste pequeno e seguro pode ir direto na `main`. **Sem `develop`** (era um degrau a mais
   para um dev só; aposentada em 20/07). Se um dia entrar outra pessoa no *desenvolvimento*
   (não na visualização — o time já vê tudo), reavaliar uma branch de homologação.
-  Push e merge exigem login interativo do Luiz (a integração do GitHub aqui é só leitura) —
+  Push e merge exigem login interativo do Clovis (a integração do GitHub aqui é só leitura) —
   o merge de PR pode ser feito pelo site do GitHub.
 
 ### Dois cookies, dois sistemas
@@ -147,7 +147,7 @@ hoje só o Luiz).
   seguinte à noite).
 - CSVs abertos no Excel dão `PermissionError` — os scripts já salvam com sufixo `_HHhMM`;
   manter esse padrão.
-- Blocos `cast` ficam **fora da análise por padrão** na tela (decisão do Luiz — dados não
+- Blocos `cast` ficam **fora da análise por padrão** na tela (decisão do Clovis — dados não
   batem); o checkbox pode religar.
 
 ## Arquivos de dados (na pasta do app, não versionados)
