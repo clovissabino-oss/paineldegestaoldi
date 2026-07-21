@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { criarClienteAdmin } from "../../lib/supabase/admin";
 import { exigirAdmin, exigirOperador } from "../../lib/papeis";
-import { extrairIds, enfileirar, mudarStatus, type StatusPedido } from "../../lib/coleta";
+import { extrairIds, enfileirar, mudarStatus } from "../../lib/coleta";
 
 // Dispara uma coleta: modo "termo" (busca por termo, ex. "PRF") ou modo
 // "ids" (IDs/URLs colados do admin — exige rótulo para identificar o lote).
@@ -53,36 +53,22 @@ export async function disparar(formData: FormData) {
   redirect("/coleta?msg=erro");
 }
 
-// Lê o status atual do pedido (para validar a transição no servidor —
-// nunca confiar no que a tela mandou).
-async function statusAtual(
-  admin: ReturnType<typeof criarClienteAdmin>,
-  id: number
-): Promise<StatusPedido | null> {
-  const { data, error } = await admin
-    .from("coleta_pedido")
-    .select("status")
-    .eq("id", id)
-    .maybeSingle<{ status: StatusPedido }>();
-  if (error || !data) return null;
-  return data.status;
-}
-
 export async function cancelar(formData: FormData) {
   await exigirAdmin();
   const id = Number(formData.get("id"));
   if (!id) redirect("/coleta?msg=erro");
 
   const admin = criarClienteAdmin();
-  const status = await statusAtual(admin, id);
-  if (status !== "pendente") redirect("/coleta?msg=status-mudou");
-
+  let mudou: boolean;
   try {
-    await mudarStatus(admin, id, "cancelada", { concluido_em: new Date().toISOString() });
+    mudou = await mudarStatus(admin, id, "cancelada", ["pendente"], {
+      concluido_em: new Date().toISOString(),
+    });
   } catch (e) {
     console.error("[coleta] cancelar:", e instanceof Error ? e.message : e);
     redirect("/coleta?msg=erro");
   }
+  if (!mudou) redirect("/coleta?msg=status-mudou");
   redirect("/coleta?msg=cancelada");
 }
 
@@ -92,19 +78,16 @@ export async function retentar(formData: FormData) {
   if (!id) redirect("/coleta?msg=erro");
 
   const admin = criarClienteAdmin();
-  const status = await statusAtual(admin, id);
-  if (status !== "erro" && status !== "aguardando_cookie") {
-    redirect("/coleta?msg=status-mudou");
-  }
-
+  let mudou: boolean;
   try {
-    await mudarStatus(admin, id, "pendente", {
+    mudou = await mudarStatus(admin, id, "pendente", ["erro", "aguardando_cookie"], {
       mensagem: null, progresso: null, iniciado_em: null, concluido_em: null, extracao_id: null,
     });
   } catch (e) {
     console.error("[coleta] retentar:", e instanceof Error ? e.message : e);
     redirect("/coleta?msg=erro");
   }
+  if (!mudou) redirect("/coleta?msg=status-mudou");
   redirect("/coleta?msg=retentada");
 }
 
@@ -114,14 +97,13 @@ export async function cancelarEmAndamento(formData: FormData) {
   if (!id) redirect("/coleta?msg=erro");
 
   const admin = criarClienteAdmin();
-  const status = await statusAtual(admin, id);
-  if (status !== "rodando") redirect("/coleta?msg=status-mudou");
-
+  let mudou: boolean;
   try {
-    await mudarStatus(admin, id, "cancelando");
+    mudou = await mudarStatus(admin, id, "cancelando", ["rodando"]);
   } catch (e) {
     console.error("[coleta] cancelarEmAndamento:", e instanceof Error ? e.message : e);
     redirect("/coleta?msg=erro");
   }
+  if (!mudou) redirect("/coleta?msg=status-mudou");
   redirect("/coleta?msg=cancelando");
 }

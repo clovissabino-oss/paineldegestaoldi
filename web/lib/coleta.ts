@@ -88,17 +88,28 @@ export async function listarFila(
   return (data ?? []) as Pedido[];
 }
 
-// Atualiza o status (e outros campos) de um pedido. SERVER-ONLY: exige o
-// cliente admin (escrita em coleta_pedido é só via service_role).
+// Atualiza o status (e outros campos) de um pedido — de forma atômica:
+// o UPDATE só aplica se o status ATUAL no banco ainda estiver entre
+// `esperados` (WHERE id = ... AND status IN (...), executado pelo PostgREST
+// como uma única instrução SQL). Evita a corrida ler-status-depois-escrever
+// (admin cancela × worker do VPS reivindica o mesmo pedido ao mesmo tempo).
+// Devolve `true` se alguma linha foi de fato atualizada; `false` se o status
+// já tinha mudado (ou o id não existe) — o chamador decide o que fazer.
+// SERVER-ONLY: exige o cliente admin (escrita em coleta_pedido é só via
+// service_role).
 export async function mudarStatus(
   admin: SupabaseClient,
   id: number,
   status: StatusPedido,
+  esperados: StatusPedido[],
   extra?: Record<string, unknown>
-): Promise<void> {
-  const { error } = await admin
+): Promise<boolean> {
+  const { data, error } = await admin
     .from("coleta_pedido")
     .update({ status, ...extra })
-    .eq("id", id);
+    .eq("id", id)
+    .in("status", esperados)
+    .select("id");
   if (error) throw new Error(`mudar status do pedido ${id}: ${error.message}`);
+  return (data ?? []).length > 0;
 }
