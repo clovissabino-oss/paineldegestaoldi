@@ -107,7 +107,22 @@ com o gate por cookie). Service_role no app: só no módulo server-only
 `web\lib\supabase\admin.ts` (env `SUPABASE_SERVICE_KEY`, sem NEXT_PUBLIC_) — nunca em
 componente cliente/navegador. Acesso: @estrategia.com entra direto pelo login (auto-
 provisionado); externos por convite na tela `/admin` (admin = `app_metadata.role="admin"`;
-hoje só o Clovis).
+hoje só o Clovis). **Papéis** (Fase 4): `admin` (tudo) e `operador` (dispara coletas) —
+gate compartilhado em `web\lib\papeis.ts` (`exigirAdmin`/`exigirOperador`, re-checado no
+servidor em toda action); concessão pelo seletor de papel no `/admin`.
+
+**Coleta pela web (Fase 4)**: a tela **`/coleta`** (admin+operador; outros → 404) dispara
+coletas por **termo** ou por **IDs+rótulo** (aceita colar a URL do admin; `extrairIds` em
+`web\lib\coleta.ts` é porta fiel do `coletor_ldi.extrair_ids` — pega `id=`, nunca
+`team_id=`) inserindo em `coleta_pedido` (`pendente`); o worker no VPS processa. Painel da
+fila com polling 5s (`/api/fila`) e ações só-admin: cancelar (`pendente`→`cancelada`),
+retentar (`erro`/`aguardando_cookie`→`pendente`), cancelar em andamento
+(`rodando`→`cancelando`, o worker converte) — transições **atômicas** (update condicional
+`.in("status", esperados)`; zero linhas = status mudou). O cookie do LDI é renovado pelo
+`/admin` (só admin; upsert em `config_ldi` via service_role — a tabela não tem policy de
+leitura, o valor nunca chega ao cliente) e o estado derivado (`cookie_status`, publicado
+pelo worker) aparece via `/api/cookie-status` como **banner** (vermelho vencido / amarelo
+≤3 dias) nas telas React (`BannerCookie.tsx`) e nas cópias vanilla de `web\telas\`.
 
 - **Supabase**: projeto na conta **Estratégia** (ref `zpjsoidxhfwziprjxpqx`) — NUNCA o
   Supabase pessoal do Clovis. Credenciais: `supabase.json` na raiz (service_role, só para o

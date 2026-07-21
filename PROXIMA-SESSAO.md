@@ -1,6 +1,6 @@
 # 🎬 Extrator LDI — Estado atual (norte da próxima sessão)
 
-_Última atualização: 19/07/2026 (sessão 7: publicação web — Supabase no ar com o snapshot do BACEN)._
+_Última atualização: 21/07/2026 (sessão 9: Fase 4 — coleta, cookie e fila pela interface web)._
 
 Este arquivo é o **ponto de partida** de qualquer nova sessão. Para o passo a passo
 de uso, veja o `TUTORIAL.md`. Para a visão do projeto, a memória do Claude
@@ -281,6 +281,43 @@ rate limit 30/h. Convite enviado ao Clovis (pendente de aceite no 1º teste).
 convidar e-mails, Site URL/Redirect URLs), projeto Vercel (Root Directory `web`, Node 22+,
 2 env vars) e a verificação de paridade dos números contra o painel local (critério de
 aceite). Checklist detalhado na Task 5 do plano.
+
+## ✅ Sessão 9 (21/07): Fase 4 — coleta, cookie e fila pela interface web
+
+Especificada e executada em cima da Fase 3 (worker no VPS já no ar): agora dispara-se
+coleta, renova-se o cookie e gere-se a fila **pelo app web** — o Clovis sai da linha de
+comando. Spec: `docs\superpowers\specs\2026-07-21-fase4-tela-coleta-design.md`; plano
+executado por subagentes (implementador + revisor por task, 1 fix Important).
+
+**Construído (branch `feat/fase4-tela-coleta`, 6 commits):**
+- **Papel `operador`** — `web\lib\papeis.ts` (`exigirPapel`/`exigirAdmin`/`exigirOperador`,
+  re-checado no servidor em toda action); seletor de papel por usuário no `/admin`
+  (`definirPapel`, só admin, não muda o próprio papel).
+- **Cookie do LDI pelo `/admin`** (só admin): campo colar `__Secure-SID` (aceita valor puro
+  ou header completo) → upsert `config_ldi` via service_role. A tela mostra só o
+  `cookie_status` derivado (o valor do cookie nunca chega ao cliente — `config_ldi` sem
+  policy de leitura). Rota nova `GET /api/cookie-status`.
+- **Banner de cookie** nas 4 telas: `BannerCookie.tsx` (React, `/admin` e `/coleta`) +
+  snippet fetch nas cópias vanilla `web\telas\{painel,avaliacao}.html` — vermelho vencido,
+  amarelo ≤3 dias (usa `--crit`/`--warn`, dark ok). Telas da raiz intocadas.
+- **Tela `/coleta`** (admin+operador; outros → 404): disparo por termo OU IDs+rótulo
+  (cola a URL do admin; `extrairIds` em `web\lib\coleta.ts` = porta fiel do Python, 6/6
+  checks Node — nunca pega `team_id=`); fila com polling 5s (`/api/fila`) e ações só-admin
+  cancelar/retentar/cancelar-em-andamento. **Transições atômicas** (fix da revisão: update
+  condicional `.in("status", esperados)` — fecha corrida com o worker; zero linhas
+  atualizadas = "status mudou", nada é sobrescrito).
+- Todas as 6 tasks revisadas (spec+qualidade); build limpo em cada uma; bundle conferido
+  sem service key/cookie.
+
+**⚠ Pendências da sessão 9 (aceite manual do Clovis):**
+1. Push da branch + PR → `main` (login interativo do Clovis; merge deploya no Vercel).
+2. Aceite do spec: operador dispara → worker (VPS) processa → concurso no seletor;
+   admin cola cookie novo → `cookie_status` reflete; forçar `valido=false`/`dias=2` no
+   Supabase e conferir o banner nas 4 telas; cancelar/retentar/cancelar-em-andamento.
+3. Conceder papel `operador` a quem for disparar coletas (seletor no `/admin`).
+4. Minors deferidos (lista no ledger `.superpowers/sdd/progress.md`): texto do banner
+   expandido além do brief (confirmar), `import "server-only"` em `lib/coleta.ts`,
+   `dataLocal` duplicado, marcador `__Secure-SID=` case-sensitive.
 
 ---
 
