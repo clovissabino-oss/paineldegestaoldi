@@ -76,6 +76,15 @@ def _config():
     return url.rstrip("/"), key
 
 
+def _config_json():
+    """Lê o supabase.json (se existir) como dict — para campos extra (resend, admin)."""
+    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "supabase.json")
+    if os.path.exists(caminho):
+        with open(caminho, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
 def esta_configurado():
     if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_KEY"):
         return True
