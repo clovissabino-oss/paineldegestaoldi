@@ -7,6 +7,28 @@ import time
 from datetime import datetime, timezone
 
 
+# Endpoint mais barato do LDI para provar a sessão (espelho de extrator_ldi.API;
+# constante local para o módulo continuar sem dependências além de stdlib).
+URL_PROBE = ("https://api.estrategia.com/bo/ldi/courses"
+             "?page=1&per_page=1&sort=desc&order_by=created_at")
+
+
+def probar_cookie(sessao):
+    """Prova o cookie contra a API (o exp do JWT mente quando o servidor derruba
+    a sessão). Devolve True (aceito), False (401/403 = recusado) ou None
+    (inconclusivo: rede fora ou 5xx — não é veredito sobre o cookie).
+    `sessao` = requests.Session já montada (extrator_ldi.montar_sessao)."""
+    try:
+        r = sessao.get(URL_PROBE, timeout=15)
+    except Exception:
+        return None
+    if r.status_code in (401, 403):
+        return False
+    if r.ok:
+        return True
+    return None
+
+
 def decodifica_sid(cookie_bruto):
     """Extrai {email, expira_ts} do token __Secure-SID; {} se não achar/decodificar."""
     m = re.search(r"__Secure-SID=([^;\s]+)", cookie_bruto or "")

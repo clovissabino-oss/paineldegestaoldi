@@ -77,8 +77,10 @@ class TestProcessarPedidoCookie(unittest.TestCase):
         self.assertIn("cookie", call_args[0][0].lower())
 
         # Verificar que o cookie status foi publicado com forcar_invalido=True
-        # (o banner não pode aparecer válido quando o cookie foi rejeitado pelo LDI)
-        mock_publicar_status.assert_called_once()
+        # (o banner não pode aparecer válido quando o cookie foi rejeitado pelo LDI).
+        # Nota: o gate do pedido também publica (status combinado) — o que importa
+        # é a ÚLTIMA publicação carregar o forcar_invalido.
+        self.assertTrue(mock_publicar_status.called)
         call_args = mock_publicar_status.call_args
         forcar_invalido = call_args.kwargs.get("forcar_invalido")
         if forcar_invalido is None:
@@ -160,6 +162,98 @@ class TestProgressoCallback(unittest.TestCase):
         status = worker_coleta.processar_pedido(rest, key, row, cfg)
 
         self.assertEqual(status, "cancelada")
+
+
+class TestProbeDeCookie(unittest.TestCase):
+    """O exp do JWT mente quando o servidor derruba a sessão (incidente 21/07):
+    o worker mantém o veredito do probe HTTP entre ciclos e publica o status
+    COMBINADO — senão a publicação de 20s sobrescreveria o 'derrubado'."""
+
+    def setUp(self):
+        worker_coleta._probe.update(cookie=None, resultado=None, ciclo=0)
+
+    @patch("worker_coleta.enviar_email_cookie")
+    @patch("worker_coleta._publicar_cookie_status")
+    @patch("worker_coleta.cookie_status.probar_cookie", return_value=False)
+    @patch("worker_coleta.extrator_ldi.montar_sessao")
+    @patch("worker_coleta._ler_cookie")
+    @patch("worker_coleta._patch_pedido")
+    def test_probe_recusado_pre_pedido_vira_aguardando(
+        self, mock_patch, mock_ler, mock_sessao, mock_probar, mock_pub, mock_email
+    ):
+        """JWT válido mas sessão derrubada (probe False) → aguardando_cookie + e-mail,
+        sem nem tentar coletar."""
+        mock_ler.return_value = _cookie_valido()
+        row = {"id": 50, "tipo": "termo", "alvo": "PRF", "rotulo": None}
+        status = worker_coleta.processar_pedido("http://mock", "k", row,
+                                                {"vertical": "concursos"})
+        self.assertEqual(status, "aguardando_cookie")
+        mock_email.assert_called_once()
+        aguardando = [c for c in mock_patch.call_args_list
+                      if c[0][3].get("status") == "aguardando_cookie"]
+        self.assertTrue(aguardando)
+
+    @patch("worker_coleta.coletor_ldi.coletar", return_value=999)
+    @patch("worker_coleta._publicar_cookie_status")
+    @patch("worker_coleta.cookie_status.probar_cookie", return_value=None)
+    @patch("worker_coleta.extrator_ldi.montar_sessao")
+    @patch("worker_coleta._ler_cookie")
+    @patch("worker_coleta._patch_pedido")
+    def test_probe_inconclusivo_prossegue(
+        self, mock_patch, mock_ler, mock_sessao, mock_probar, mock_pub, mock_coletar
+    ):
+        """Probe None (rede fora/5xx) não é veredito — a coleta prossegue."""
+        mock_ler.return_value = _cookie_valido()
+        row = {"id": 51, "tipo": "termo", "alvo": "PRF", "rotulo": None}
+        status = worker_coleta.processar_pedido("http://mock", "k", row,
+                                                {"vertical": "concursos"})
+        self.assertEqual(status, "concluida")
+
+    @patch("worker_coleta.requests.post")
+    def test_publicacao_combina_jwt_e_probe(self, mock_post):
+        """JWT no futuro + probe False → publica valido=False (o banner conta a verdade)."""
+        mock_post.return_value = MagicMock(raise_for_status=lambda: None)
+        r = worker_coleta._publicar_cookie_status("http://mock", "k",
+                                                  _cookie_valido(), probe=False)
+        self.assertFalse(r["valido"])
+        corpo = mock_post.call_args.kwargs["json"]
+        self.assertFalse(corpo["valido"])
+
+    @patch("worker_coleta._publicar_cookie_status")
+    @patch("worker_coleta.cookie_status.probar_cookie", return_value=True)
+    @patch("worker_coleta.extrator_ldi.montar_sessao")
+    @patch("worker_coleta._ler_cookie")
+    def test_cookie_novo_reprova_imediato(
+        self, mock_ler, mock_sessao, mock_probar, mock_pub
+    ):
+        """Probe roda no 1º ciclo, NÃO roda de novo no ciclo seguinte (mesmo cookie),
+        e roda imediatamente quando o cookie muda (renovado pelo admin)."""
+        cfg = {"vertical": "concursos"}
+        mock_ler.return_value = "__Secure-SID=a.b.c"
+        worker_coleta._avaliar_cookie("http://mock", "k", cfg)
+        self.assertEqual(mock_probar.call_count, 1)
+        worker_coleta._avaliar_cookie("http://mock", "k", cfg)
+        self.assertEqual(mock_probar.call_count, 1)  # ciclo 1 de 45: não prova
+        mock_ler.return_value = "__Secure-SID=novo.b.c"
+        worker_coleta._avaliar_cookie("http://mock", "k", cfg)
+        self.assertEqual(mock_probar.call_count, 2)  # cookie mudou: prova já
+
+    @patch("worker_coleta._publicar_cookie_status")
+    @patch("worker_coleta.cookie_status.probar_cookie", side_effect=[False, None])
+    @patch("worker_coleta.extrator_ldi.montar_sessao")
+    @patch("worker_coleta._ler_cookie")
+    def test_inconclusivo_preserva_veredito_anterior(
+        self, mock_ler, mock_sessao, mock_probar, mock_pub
+    ):
+        """Depois de um False, um probe inconclusivo NÃO limpa o veredito."""
+        cfg = {"vertical": "concursos"}
+        mock_ler.return_value = "__Secure-SID=a.b.c"
+        _, veredito = worker_coleta._avaliar_cookie("http://mock", "k", cfg,
+                                                    forcar_probe=True)
+        self.assertIs(veredito, False)
+        _, veredito = worker_coleta._avaliar_cookie("http://mock", "k", cfg,
+                                                    forcar_probe=True)
+        self.assertIs(veredito, False)
 
 
 if __name__ == "__main__":

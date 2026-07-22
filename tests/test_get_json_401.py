@@ -36,6 +36,18 @@ class TestGetJson401(unittest.TestCase):
             extrator_ldi.obter_curso(_Sessao401(),
                                      "d8970f8c-732d-4bc6-8bf3-bf9d53a9f314")
 
+    def test_get_json_403_tambem_levanta_cookie_vencido(self):
+        # o LDI também derruba sessão com 403 — mesmo tratamento do 401
+        # (baixar_blocos já cobre 401/403; get_json precisa do par)
+        class _Sessao403(_Sessao401):
+            def get(self, url, timeout=60):
+                r = _Resposta401()
+                r.status_code = 403
+                return r
+
+        with self.assertRaises(extrator_ldi.CookieVencido):
+            extrator_ldi.get_json(_Sessao403(), "http://exemplo/bo/ldi/courses")
+
     def test_cookie_vencido_continua_sendo_system_exit(self):
         # os .exe/CLI tratam SystemExit como fim limpo — não pode virar crash
         self.assertTrue(issubclass(extrator_ldi.CookieVencido, SystemExit))

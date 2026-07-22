@@ -110,8 +110,8 @@ def get_json(sessao, url, tentativa=1):
             time.sleep(0.7 * tentativa * tentativa)
             return get_json(sessao, url, tentativa + 1)
         raise falha(f"Falha de rede repetida em {url}: {e}")
-    if r.status_code == 401:
-        print("\n[ERRO] A API respondeu 401 (não autenticado).\n"
+    if r.status_code in (401, 403):
+        print(f"\n[ERRO] A API respondeu {r.status_code} (não autenticado).\n"
               "       O cookie venceu — atualize o cookie.txt (TUTORIAL.md, seção 'Atualizar o cookie').")
         raise CookieVencido(1)
     if r.status_code == 429 or r.status_code >= 500:
