@@ -33,6 +33,7 @@
   }
   h1 { font-size: 26px; font-weight: 650; margin: 0 0 4px; text-wrap: balance; }
   .sub { color: var(--ink-2); margin: 0 0 14px; max-width: 68ch; }
+  .sub.hier { font-size: 12px; margin-top: -8px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
   .chip {
     font-size: 12.5px; color: var(--ink-2); background: var(--card);
@@ -128,6 +129,7 @@
     <a href="/auth/sair" style="color:inherit;float:right">sair ↪</a></p>
   <h1 id="titulo"></h1>
   <p class="sub">Snapshot mais recente publicado pelo coletor — leitura para o time.</p>
+  <p class="sub hier">Hierarquia LDI: Curso → Aulas (capítulos no admin) → Itens (tópicos com conteúdo) → Blocos (vídeo, texto, questão…)</p>
   <div id="barraConcurso" style="margin:8px 0 4px"></div>
   <div class="chips" id="chips"></div>
 
@@ -136,7 +138,7 @@
   <div class="cols">
     <div class="panel">
       <h2>Blocos únicos por tipo</h2>
-      <p class="h2sub">Aulas compartilhadas entre cursos contam uma vez</p>
+      <p class="h2sub">Itens compartilhados entre cursos contam uma vez</p>
       <div id="chart"></div>
     </div>
     <div class="panel">
@@ -147,11 +149,11 @@
   </div>
 
   <h2>Cursos — contagens por tipo de conteúdo</h2>
-  <p class="h2sub">Clique no cabeçalho para ordenar · contagens somadas sobre as aulas de cada curso · <span class="zero">0</span> = curso sem aquele tipo</p>
+  <p class="h2sub">Clique no cabeçalho para ordenar · contagens somadas sobre os itens de cada curso · <span class="zero">0</span> = curso sem aquele tipo</p>
   <div class="tbl-box">
     <table id="tbl">
       <thead><tr>
-        <th data-k="nome">Curso</th><th data-k="aulas">Aulas</th><th data-k="videos">Vídeos</th>
+        <th data-k="nome">Curso</th><th data-k="aulas">Itens</th><th data-k="videos">Vídeos</th>
         <th data-k="questoes">Questões</th><th data-k="textos">Textos</th><th data-k="pdfs">PDFs</th>
       </tr></thead>
       <tbody></tbody>
@@ -190,8 +192,8 @@
   ].filter(Boolean).map(c => `<span class="chip">${c}</span>`).join("");
 
   const kpis = [
-    { n: K.cursos_total, l: "cursos encontrados", d: `${fmt(K.cursos_com_aulas)} com aulas` },
-    { n: K.aulas_unicas, l: "aulas únicas", d: `${fmt(K.vinculos)} vínculos curso↔aula` },
+    { n: K.cursos_total, l: "cursos encontrados", d: `${fmt(K.cursos_com_aulas)} com itens` },
+    { n: K.aulas_unicas, l: "itens únicos", d: `${fmt(K.vinculos)} vínculos curso↔item` },
     { n: K.blocos, l: "blocos únicos", d: "todos os tipos" },
     { n: K.questoes, l: "questões", d: K.blocos ? `${Math.round(K.questoes / K.blocos * 100)}% dos blocos` : "" },
     { n: K.textos, l: "blocos de texto", d: "o livro em si" },
@@ -213,19 +215,19 @@
   const semAula = K.cursos_total - K.cursos_com_aulas;
   const achados = [
     [X.q_sem_solucao ? "warn" : "ok", `<b>${fmt(X.q_sem_solucao)}</b> questões sem solução cadastrada (${pct}% das únicas)`],
-    [semAula ? "warn" : "ok", `<b>${fmt(semAula)}</b> cursos sem nenhuma aula na árvore`],
-    [X.cursos_sem_video ? "warn" : "ok", `<b>${fmt(X.cursos_sem_video)}</b> cursos com aulas mas sem nenhum vídeo`],
+    [semAula ? "warn" : "ok", `<b>${fmt(semAula)}</b> cursos sem nenhum item na árvore`],
+    [X.cursos_sem_video ? "warn" : "ok", `<b>${fmt(X.cursos_sem_video)}</b> cursos com itens mas sem nenhum vídeo`],
     [X.cursos_sem_pdf ? "warn" : "ok", `<b>${fmt(X.cursos_sem_pdf)}</b> cursos sem nenhum PDF`],
     [X.v_sem_id ? "crit" : "ok", `<b>${fmt(X.v_sem_id)}</b> vídeos sem ID do sistema antigo no nome (fora do de→para)`],
-    [(X.aulas_vazias || X.rascunhos) ? "warn" : "ok", `<b>${fmt(X.aulas_vazias)}</b> aulas vazias e <b>${fmt(X.rascunhos)}</b> blocos em rascunho`],
+    [(X.aulas_vazias || X.rascunhos) ? "warn" : "ok", `<b>${fmt(X.aulas_vazias)}</b> itens vazios e <b>${fmt(X.rascunhos)}</b> blocos em rascunho`],
     ["ok", `<b>${fmt(X.q_com_video)}</b> questões já têm solução em vídeo`],
   ];
   document.getElementById("findings").innerHTML = achados.map(([s, t]) =>
     `<div class="find"><span class="tag ${s}">${s === "warn" ? "atenção" : s === "crit" ? "crítico" : "ok"}</span><div class="t">${t}</div></div>`).join("");
 
   document.getElementById("foot").textContent =
-    `${fmt(K.cursos_com_aulas)} cursos com aulas na árvore (de ${fmt(K.cursos_total)} encontrados na busca). ` +
-    `Contagens por vínculo curso↔aula: uma aula reaproveitada em vários cursos conta em cada um, como o aluno a vê.`;
+    `${fmt(K.cursos_com_aulas)} cursos com itens na árvore (de ${fmt(K.cursos_total)} encontrados na busca). ` +
+    `Contagens por vínculo curso↔item: um item reaproveitado em vários cursos conta em cada um, como o aluno o vê.`;
 
   const tbody = document.querySelector("#tbl tbody");
   let ordem = { k: "questoes", asc: false };

@@ -150,7 +150,7 @@ def processar_pedido(rest, key, row, cfg):
 
     def progresso(feito, total):
         try:
-            _patch_pedido(rest, key, pid, {"progresso": f"{feito}/{total} aulas"})
+            _patch_pedido(rest, key, pid, {"progresso": f"{feito}/{total} itens"})
             cancelar = _status_pedido(rest, key, pid) == "cancelando"
         except Exception:
             return  # blip de rede no Supabase não derruba a coleta em andamento

@@ -118,7 +118,7 @@
 
   <div class="tbl-box"><table id="tbl">
     <thead><tr>
-      <th>Capítulo (LDI)</th>
+      <th>Aula (LDI)</th>
       <th>Questões<br>emb. + texto</th>
       <th data-alvo>Distribuição<br>por banca</th>
       <th id="thAnosQ">% por ano da prova</th>
@@ -223,7 +223,7 @@
       const bancasTxt = Object.entries(c.bancas).sort((x, y) => y[1] - x[1]).slice(0, 3)
         .map(([b, n]) => `${b.replace(" (CEBRASPE)", "")}: ${n}`).join("<br>") || "—";
       return `<tr>
-        <td class="cap-nm">${c.nome}<small>${c.aulas} aulas</small></td>
+        <td class="cap-nm">${c.nome}<small>${c.aulas} itens</small></td>
         <td class="num">${fmt(totQ)}<br><small style="color:var(--ink-3)">${c.q_emb} emb. + ${c.q_txt} texto</small></td>
         <td class="num">${totQ === 0 ? '<span class="vazio">—</span>' : banca
           ? `${alvo} / ${totQ - alvo}<br><b>${pc(alvo, totQ)}</b> banca-alvo`
@@ -244,7 +244,7 @@
     const totQ = tot("q_emb") + tot("q_txt");
     const totAlvo = banca ? D.capitulos.reduce((s, c) => s + (c.bancas[banca] || 0), 0) : null;
     document.getElementById("dash").innerHTML = [
-      { n: D.capitulos.length, l: "capítulos" },
+      { n: D.capitulos.length, l: "aulas" },
       { n: fmt(totQ), l: "questões (emb. + texto)" },
       banca ? { n: pc(totAlvo, totQ), l: "% banca-alvo" } : null,
       { n: pc(tot("q_novo"), tot("q_com_ano")), l: `% questões ${ANO - 2}-${ANO}` },
