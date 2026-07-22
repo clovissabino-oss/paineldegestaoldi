@@ -309,6 +309,20 @@ executado por subagentes (implementador + revisor por task, 1 fix Important).
 - Todas as 6 tasks revisadas (spec+qualidade); build limpo em cada uma; bundle conferido
   sem service key/cookie.
 
+**Fase 4.1 (22/07, mesma sessão): cookie de verdade + renovação no fluxo.** Incidente
+real: o LDI derrubou a sessão com o JWT "válido" por 28 dias — o status mentiu e a 1ª
+coleta da fila morreu com erro mudo. Correções: (a) `CookieVencido` cobre o 401/403 da
+1ª fase da coleta (antes virava `erro` "1"); (b) **probe real** — worker prova o cookie
+contra a API (~15 min, ao trocar e antes de cada pedido) e mantém o veredito entre
+ciclos (`_probe`), publicando `valido` combinado; (c) ao colar o cookie o app **testa
+na hora** contra o LDI (401 → "recusado", não salva; provado com cookie lixo: 401 JSON);
+(d) bloco 🍪 de renovação também na `/coleta` (topo, só admin — componente `CookieLdi`);
+(e) banner diferencia "sessão derrubada" (valido=false + dias>0) de "vencido" e aponta
+p/ /coleta; (f) links ⚙ Admin nas telas. Papéis gravados: clovis.sabino@ = admin;
+luiz.alvarenga@ e mirela.barreto@ = operador (404 em /coleta era falta de papel — contas
+@estrategia.com nascem sem role). Suite 76/76; build limpo. **Após o push: atualizar o
+worker no VPS** (`git pull` + `systemctl restart worker-coleta`).
+
 **⚠ Pendências da sessão 9 (aceite manual do Clovis):**
 1. Push da branch + PR → `main` (login interativo do Clovis; merge deploya no Vercel).
 2. Aceite do spec: operador dispara → worker (VPS) processa → concurso no seletor;

@@ -1,9 +1,5 @@
 import { criarClienteServidor } from "../lib/supabase/servidor";
-
-interface StatusCookie {
-  dias_restantes: number | null;
-  valido: boolean;
-}
+import { estadoCookie } from "../lib/ldi";
 
 // Aviso de status do cookie do LDI (publicado por cookie_status, id=1).
 // Nunca lê config_ldi — só os campos derivados que o worker publica.
@@ -13,11 +9,12 @@ export async function BannerCookie() {
     .from("cookie_status")
     .select("dias_restantes, valido")
     .eq("id", 1)
-    .maybeSingle<StatusCookie>();
+    .maybeSingle<{ dias_restantes: number | null; valido: boolean }>();
 
   if (!status) return null;
+  const estado = estadoCookie(status);
 
-  if (!status.valido) {
+  if (estado === "derrubado" || estado === "vencido") {
     return (
       <p
         style={{
@@ -26,7 +23,9 @@ export async function BannerCookie() {
           border: "1px solid #f0c4c1",
         }}
       >
-        🍪 Cookie do LDI vencido — coletas estão paradas. Avise um administrador.
+        {estado === "derrubado"
+          ? "🍪 A sessão do cookie do LDI foi derrubada pelo servidor — coletas estão paradas. Renove na tela de coleta."
+          : "🍪 Cookie do LDI vencido — coletas estão paradas. Renove na tela de coleta."}
       </p>
     );
   }
@@ -40,7 +39,7 @@ export async function BannerCookie() {
           border: "1px solid #eeddb0",
         }}
       >
-        🍪 Cookie do LDI vence em {Math.round(status.dias_restantes)} dia(s) — renove no /admin.
+        🍪 Cookie do LDI vence em {Math.round(status.dias_restantes)} dia(s) — renove na tela de coleta.
       </p>
     );
   }

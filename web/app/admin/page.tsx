@@ -1,20 +1,16 @@
 import { listarUsuarios, criarClienteAdmin } from "../../lib/supabase/admin";
 import { criarClienteServidor } from "../../lib/supabase/servidor";
 import { exigirAdmin } from "../../lib/papeis";
-import { convidarUsuario, atualizarCookie } from "./actions";
+import { convidarUsuario } from "./actions";
 import { FormRemover } from "./form-remover";
 import { FormPapel } from "./form-papel";
 import { BannerCookie } from "../../components/BannerCookie";
+import { CookieLdi } from "../../components/CookieLdi";
+import type { StatusCookie } from "../../lib/ldi";
 
 export const dynamic = "force-dynamic";
-
-interface StatusCookie {
-  email: string | null;
-  expira_em: string | null;
-  dias_restantes: number | null;
-  valido: boolean;
-  atualizado_em: string | null;
-}
+// o probe do cookie na action pode levar ~6s — folga na função serverless
+export const maxDuration = 30;
 
 const MENSAGENS: Record<string, (email?: string) => string> = {
   email: () => "Informe um e-mail válido.",
@@ -27,7 +23,11 @@ const MENSAGENS: Record<string, (email?: string) => string> = {
   "papel-definido": (e) => `✅ Papel de ${e ?? "usuário"} atualizado.`,
   "cookie-vazio": () => "Cole o cookie antes de salvar.",
   "cookie-erro": () => "❌ Não foi possível salvar o cookie — tente de novo.",
-  "cookie-ok": () => "✅ Cookie do LDI atualizado. O worker publica o status em instantes.",
+  "cookie-ok": () => "✅ Cookie aceito pelo LDI e salvo. O worker publica o status em instantes.",
+  "cookie-recusado": () =>
+    "⛔ O LDI recusou esse cookie (sessão inválida) — nada foi salvo. Copie o __Secure-SID de novo (F12 → Application → Cookies).",
+  "cookie-salvo-sem-validar": () =>
+    "⚠ Cookie salvo, mas não consegui validar contra o LDI agora — o worker confirma em instantes (veja o status).",
 };
 
 // Data local do projeto: pt-BR com fuso explícito (servidor do Vercel é UTC).
@@ -150,50 +150,7 @@ export default async function PaginaAdmin({
         </tbody>
       </table>
 
-      <h2 style={{ fontSize: 17, fontWeight: 650, margin: "32px 0 4px" }}>
-        🍪 Cookie do LDI
-      </h2>
-      <p style={{ color: "#52514e", fontSize: 13, margin: "0 0 12px" }}>
-        Usado pelo worker de coleta para acessar o admin do LDI. Cole aqui um
-        <code style={{ margin: "0 4px" }}>__Secure-SID</code>
-        novo (o valor puro ou o cookie inteiro colado) quando vencer.
-      </p>
-
-      <p style={{ fontSize: 13, margin: "0 0 16px" }}>
-        {statusCookie ? (
-          <>
-            {statusCookie.valido ? "✅ válido" : "❌ vencido"}
-            {statusCookie.email ? ` · ${statusCookie.email}` : ""}
-            {statusCookie.dias_restantes != null
-              ? ` · ${Math.round(statusCookie.dias_restantes)} dia(s) restante(s)`
-              : ""}
-            {" · atualizado em "}
-            {dataLocal(statusCookie.atualizado_em ?? undefined)}
-          </>
-        ) : (
-          "Sem informação ainda (o worker publica ao rodar)."
-        )}
-      </p>
-
-      <form action={atualizarCookie} style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        <input
-          type="password" name="cookie" required placeholder="__Secure-SID=... (ou só o valor)"
-          style={{
-            flex: 1, font: "inherit", padding: "8px 11px",
-            border: "1px solid #e3e2dd", borderRadius: 8,
-          }}
-        />
-        <button
-          type="submit"
-          style={{
-            font: "inherit", fontWeight: 600, cursor: "pointer",
-            background: "#2a78d6", color: "#fff", border: 0, borderRadius: 8,
-            padding: "8px 16px",
-          }}
-        >
-          Atualizar cookie
-        </button>
-      </form>
+      <CookieLdi statusCookie={statusCookie ?? null} voltar="/admin" />
     </main>
   );
 }

@@ -3,9 +3,12 @@
 import { redirect } from "next/navigation";
 import { criarClienteAdmin } from "../../lib/supabase/admin";
 import { exigirAdmin } from "../../lib/papeis";
+import { probarCookieLdi } from "../../lib/ldi";
 
 const DOMINIO_APROVADO = "@estrategia.com";
 const PAPEIS_VALIDOS = ["", "operador", "admin"];
+// telas que podem hospedar o formulário do cookie (whitelist do redirect)
+const DESTINOS_COOKIE = ["/admin", "/coleta"];
 
 export async function convidarUsuario(formData: FormData) {
   await exigirAdmin();
@@ -71,8 +74,16 @@ function sanearCookie(bruto: string): string {
 
 export async function atualizarCookie(formData: FormData) {
   const user = await exigirAdmin();
+  const destino = String(formData.get("voltar") ?? "");
+  const voltar = DESTINOS_COOKIE.includes(destino) ? destino : "/admin";
   const cookie = sanearCookie(String(formData.get("cookie") ?? ""));
-  if (!cookie) redirect("/admin?msg=cookie-vazio");
+  if (!cookie) redirect(`${voltar}?msg=cookie-vazio`);
+
+  // prova o cookie contra o LDI antes de salvar: recusado com certeza (401,
+  // ou 403 JSON) não é salvo; inconclusivo (rede/WAF) salva mesmo assim e o
+  // worker confirma em até 20s.
+  const veredito = await probarCookieLdi(cookie);
+  if (veredito === "recusado") redirect(`${voltar}?msg=cookie-recusado`);
 
   const admin = criarClienteAdmin();
   const { error } = await admin.from("config_ldi").upsert(
@@ -86,7 +97,7 @@ export async function atualizarCookie(formData: FormData) {
   );
   if (error) {
     console.error("[admin] atualizarCookie:", error.message);
-    redirect("/admin?msg=cookie-erro");
+    redirect(`${voltar}?msg=cookie-erro`);
   }
-  redirect("/admin?msg=cookie-ok");
+  redirect(`${voltar}?msg=${veredito === "ok" ? "cookie-ok" : "cookie-salvo-sem-validar"}`);
 }

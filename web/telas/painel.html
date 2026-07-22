@@ -104,10 +104,14 @@
       const critico = !data.valido;
       const perto = data.dias_restantes != null && data.dias_restantes <= 3;
       if (!critico && !perto) return;
+      // valido=false com dias_restantes>0 = sessão derrubada pelo servidor (JWT ainda no futuro)
+      const derrubado = critico && data.dias_restantes != null && data.dias_restantes > 0;
       const el = document.getElementById("banner-cookie");
       el.textContent = critico
-        ? "🍪 Cookie do LDI vencido — coletas estão paradas. Avise um administrador."
-        : `🍪 Cookie do LDI vence em ${Math.round(data.dias_restantes)} dia(s) — renove no /admin.`;
+        ? (derrubado
+            ? "🍪 A sessão do cookie do LDI foi derrubada pelo servidor — coletas estão paradas. Renove na tela de coleta."
+            : "🍪 Cookie do LDI vencido — coletas estão paradas. Renove na tela de coleta.")
+        : `🍪 Cookie do LDI vence em ${Math.round(data.dias_restantes)} dia(s) — renove na tela de coleta.`;
       el.style.cssText = "margin:0 0 16px;padding:9px 13px;border-radius:8px;font-size:13px;" +
         (critico
           ? "color:var(--crit);border:1px solid var(--crit);background:var(--crit-bg)"
@@ -120,6 +124,7 @@
   <p class="eyebrow">Painel de Conteúdo · Inventário
     &nbsp;·&nbsp; <a href="/avaliacao" style="color:inherit">📋 Avaliação de disciplina</a>
     &nbsp;·&nbsp; <a href="/coleta" style="color:inherit">📥 Coleta</a>
+    &nbsp;·&nbsp; <a href="/admin" style="color:inherit">⚙ Admin</a>
     <a href="/auth/sair" style="color:inherit;float:right">sair ↪</a></p>
   <h1 id="titulo"></h1>
   <p class="sub">Snapshot mais recente publicado pelo coletor — leitura para o time.</p>
