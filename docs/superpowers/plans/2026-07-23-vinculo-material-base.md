@@ -79,6 +79,8 @@ Expected: FAIL (`AttributeError: module 'banco_conteudo' has no attribute 'grava
 
 - [ ] **Step 3: Implementar**
 
+⚠ **Correção descoberta na execução:** `gravar_arvore` usa `INSERT OR REPLACE INTO aulas VALUES(?,...)` **posicional** (13 placeholders) — a 14ª coluna quebra. Converter esse INSERT para colunas **nomeadas** (as 13 atuais), deixando `vinculado_mb` NULL no insert. Seguro porque `gravar_arvore` roda 1× por extração, antes de `_completar_vinculo_mb` (não há wipe).
+
 Em `banco_conteudo.py`, dentro de `abrir()`, no bloco de migração idempotente (junto das `ALTER TABLE blocos ...`), acrescentar a linha do `aulas`:
 
 ```python

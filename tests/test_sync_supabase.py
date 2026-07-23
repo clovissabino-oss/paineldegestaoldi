@@ -17,7 +17,7 @@ def _fixture(caminho):
                     "VALUES(1,'TESTE','x','2026-07-06T10:00:00','completa')")
         con.execute("INSERT INTO cursos VALUES(1,'C1','Curso Um',1,'Prof A','')")
         con.execute("INSERT INTO capitulos VALUES(1,'C1','CAP1','Capitulo 1',0,'','')")
-        con.execute("INSERT INTO aulas VALUES(1,'C1','CAP1','IT1','Aula 1','','',1,1,0,0,0,0)")
+        con.execute("INSERT INTO aulas VALUES(1,'C1','CAP1','IT1','Aula 1','','',1,1,0,0,0,0,NULL)")
         con.execute("INSERT INTO aulas_coletadas VALUES(1,'IT1',2,'2026-07-06T10:05:00')")
         con.execute("INSERT INTO blocos(extracao_id,item_id,bloco_id,tipo,tem_solucao,"
                     "tem_video_solucao,banca,ano) "

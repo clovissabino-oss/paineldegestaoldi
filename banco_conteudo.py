@@ -81,7 +81,8 @@ def abrir(caminho):
     # migração de bases anteriores à v1.1 (idempotente)
     for sql in ("ALTER TABLE blocos ADD COLUMN banca TEXT",
                 "ALTER TABLE blocos ADD COLUMN ano INTEGER",
-                "ALTER TABLE blocos ADD COLUMN qtd_questoes_texto INTEGER"):
+                "ALTER TABLE blocos ADD COLUMN qtd_questoes_texto INTEGER",
+                "ALTER TABLE aulas ADD COLUMN vinculado_mb INTEGER"):
         try:
             con.execute(sql)
         except sqlite3.OperationalError as e:
@@ -118,7 +119,10 @@ def gravar_arvore(con, extracao_id, cursos):
                 for item in (cap.get("items") or []):
                     q = parse_blocos.contagens_da_aula(item)
                     con.execute(
-                        "INSERT OR REPLACE INTO aulas VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "INSERT OR REPLACE INTO aulas(extracao_id, curso_id, capitulo_id, "
+                        "item_id, nome, path, atualizada_em, qtd_videos, qtd_questoes, "
+                        "qtd_textos, qtd_pdfs, qtd_casts, qtd_outros) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (extracao_id, c.get("id", ""), cap.get("chapter_id", ""),
                          item.get("item_id", ""),
                          item.get("name") or item.get("title") or "",
@@ -127,6 +131,16 @@ def gravar_arvore(con, extracao_id, cursos):
                          q["qtd_pdfs"], q["qtd_casts"], q["qtd_outros"]))
                     itens.add(item.get("item_id", ""))
     return len(cursos), len(itens)
+
+
+def gravar_vinculo_mb(con, extracao_id, vinculo):
+    """Grava vinculado_mb (1/0) por item na tabela aulas. `vinculo` = {item_id: bool}.
+    Itens ausentes do dict permanecem NULL (desconhecido)."""
+    with con:
+        for item_id, tem in vinculo.items():
+            con.execute(
+                "UPDATE aulas SET vinculado_mb=? WHERE extracao_id=? AND item_id=?",
+                (1 if tem else 0, extracao_id, item_id))
 
 
 def aulas_pendentes(con, extracao_id):
