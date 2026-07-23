@@ -70,6 +70,17 @@ def contagens_da_aula(item):
     return c
 
 
+def vinculo_mb_dos_itens(data_itens):
+    """De GET /bo/ldi/chapters/{id}/items: {item_id: has_base_material(bool)}.
+    O item usa 'id' (fallback 'item_id') como identificador; sem id, ignora."""
+    out = {}
+    for it in (data_itens or []):
+        iid = it.get("id") or it.get("item_id")
+        if iid:
+            out[iid] = bool(it.get("has_base_material"))
+    return out
+
+
 def autores_do_curso(curso):
     if curso.get("authors_name"):
         return str(curso["authors_name"])
