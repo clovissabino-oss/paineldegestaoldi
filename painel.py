@@ -79,6 +79,10 @@ def dados_do_snapshot(con):
             "videos": um("SELECT COUNT(*) FROM blocos WHERE extracao_id=? "
                          "AND tipo IN ('videoMyDocuments','cast','youtube')", e),
             "casts": um("SELECT COUNT(*) FROM blocos WHERE extracao_id=? AND tipo='cast'", e),
+            "itens_total": um("SELECT COUNT(*) FROM aulas WHERE extracao_id=? "
+                              "AND vinculado_mb IS NOT NULL", e),
+            "itens_mb": um("SELECT COUNT(*) FROM aulas WHERE extracao_id=? "
+                           "AND vinculado_mb=1", e),
         },
         "achados": {
             "q_unicas": q_unicas,
@@ -93,6 +97,9 @@ def dados_do_snapshot(con):
             "rascunhos": um("SELECT COUNT(*) FROM blocos WHERE extracao_id=? AND rascunho=1", e),
             "cursos_sem_video": sum(1 for c in cursos if not c["videos"]),
             "cursos_sem_pdf": sum(1 for c in cursos if not c["pdfs"]),
+            "aulas_com_item_fora_mb": um(
+                "SELECT COUNT(*) FROM (SELECT capitulo_id FROM aulas "
+                "WHERE extracao_id=? AND vinculado_mb=0 GROUP BY curso_id, capitulo_id)", e),
         },
         "tipos": tipos,
         "cursos": cursos,
@@ -129,12 +136,20 @@ def dados_avaliacao(con, curso_id, depara=None):
             "SELECT item_id FROM aulas WHERE extracao_id=? AND curso_id=? AND capitulo_id=?",
             (e, curso_id, cap["capitulo_id"]))]
         c = {"nome": cap["nome"], "aulas": len(itens), "q_emb": 0, "q_txt": 0,
+             "itens_mb": 0, "itens_total": 0,
              "bancas": {}, "q_ate": 0, "q_meio": 0, "q_novo": 0, "q_com_ano": 0,
              "sol_texto": 0, "sol_video": 0, "vids": 0, "dur": 0,
              "v_com_data": 0, "v_ate": 0, "v_meio": 0, "v_novo": 0}
         caps.append(c)
         if not itens:
             continue
+        marks_i = ",".join("?" * len(itens))
+        row_mb = con.execute(
+            f"SELECT COUNT(*), SUM(vinculado_mb) FROM aulas WHERE extracao_id=? "
+            f"AND vinculado_mb IS NOT NULL AND item_id IN ({marks_i})",
+            (e, *itens)).fetchone()
+        c["itens_total"] = row_mb[0] or 0
+        c["itens_mb"] = row_mb[1] or 0
 
         def faixa(pref, ano):
             c["q_com_ano" if pref == "q" else "v_com_data"] += 1
