@@ -102,7 +102,12 @@ O Painel de Conteúdo tem uma vitrine web de **leitura** para o time: `sync_supa
 roda a agregação do `painel.py` sobre o `conteudo.db` e faz upsert do resultado pronto em
 3 tabelas do Supabase (`snapshot`/`avaliacao_curso`/`pendencia_resumo` + view
 `snapshot_atual`, só `pronto=true`; schema versionado em `supabase\schema.sql`, RLS leitura
-`authenticated`). O app Next.js em `web\` (deploy no Vercel, Root Directory `web`) serve as
+`authenticated`). A **data real de gravação** na web vem da tabela `depara_video`
+(`supabase\schema_depara.sql`) — o `montar_payload` casa os `video_id_antigo` do snapshot
+contra ela (`depara_do_supabase`), em vez do cache gz local que só existe na máquina do
+Clovis. Publique/atualize a tabela com `py sync_depara_supabase.py` (lê o
+`saida\metabase_depara.json.gz` local; roda **você**, com Warp + Metabase — o VPS só
+consome). O painel/Visualizador local seguem usando o gz. O app Next.js em `web\` (deploy no Vercel, Root Directory `web`) serve as
 telas com login **magic-link por convite** (Supabase Auth, sessão em cookie via
 `@supabase/ssr`, middleware gate). As telas web `web\telas\{painel,avaliacao}.html` são
 **cópias** das da raiz com 3 edições cada (link sair, selo de frescor, estado vazio) —

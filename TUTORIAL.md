@@ -333,3 +333,16 @@ Os arquivos caem na pasta Downloads. Útil como plano B ou em outro computador.
   - `py -m PyInstaller --onefile --clean --name ExtratorLDI extrator_ldi.py`
   - `py -m PyInstaller --onefile --clean --name VisualizadorLDI --add-data "ui.html;." --add-data "estoque.html;." visualizador.py`
     (usar caminho **absoluto** nos `--add-data` se rodar com `--specpath`)
+
+## Atualizar a "data real de gravação" na web (de→para no Supabase)
+
+A data de gravação dos vídeos vem do Metabase e mora no cache local
+`saida\metabase_depara.json.gz`. Para o time ver essa data na web (coletas do VPS),
+publique o de→para no Supabase — de vez em quando (a data não muda; o refresh só pega
+vídeos novos):
+
+1. **Warp ativo** + renovar o cookie do Metabase (pasta da Limpeza).
+2. `py depara_metabase.py --refresh` — atualiza o gz local (~1 min).
+3. `py sync_depara_supabase.py` — sobe o de→para pro Supabase (~poucos min).
+
+1ª vez só: aplicar `supabase\schema_depara.sql` no Supabase (Dashboard → SQL Editor → Run).

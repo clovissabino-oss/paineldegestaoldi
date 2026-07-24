@@ -74,7 +74,9 @@ sudo journalctl -u worker-coleta -f      # acompanhar
    → a reconciliação do boot devolve o pedido a `pendente` e ele reprocessa.
 
 ## Notas
-- **De→para do Metabase** não está no VPS (exige Warp) → o "ano de gravação real" dos vídeos
-  fica vazio para o que for coletado aqui; a coleta e o resto funcionam normalmente.
+- **De→para do Metabase**: o VPS não gera o cache gz (exige Warp), mas agora **consome** a
+  tabela `depara_video` do Supabase — o `montar_payload` casa o "ano de gravação real" de lá.
+  O VPS não precisa de nada: o Clovis mantém a tabela atualizada com `py sync_depara_supabase.py`
+  na máquina dele. (Se a tabela estiver vazia, o ano fica vazio, sem erro.)
 - Atualizar o worker depois: `sudo -u extrator git -C /opt/extrator-ldi pull && sudo systemctl restart worker-coleta`.
 - O `supabase.json` do VPS é o único lugar com a service_key/Resend no servidor — `chmod 600`, nunca no git.

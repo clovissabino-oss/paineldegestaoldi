@@ -338,6 +338,23 @@ fora do MB" na visão geral, coluna por aula na Avaliação, e o campo já flui 
 e o DMAE `d8970f8c-732d-4bc6-8bf3-bf9d53a9f314` — conferir 68/75 e 319/345 no painel. Depois
 do merge, atualizar o worker no VPS (`git pull` + restart) para o passo valer nas coletas de lá.
 
+**De→para de vídeos no Supabase (23/07, feature nova):** a "data real de gravação" agora
+aparece nas coletas do VPS/web. Antes o cruzamento com o Metabase só rodava local (cache gz
+`metabase_depara.json.gz`, que o VPS não tem → "0 com data"). Agora o de→para vira a tabela
+`depara_video` no Supabase; o `montar_payload` casa os `video_id_antigo` do snapshot contra
+ela. Branch `feat/depara-video-supabase` (4 tasks TDD, 101 testes). **Ritual periódico do
+Clovis** (a data de gravação não muda — refresh ocasional só pega vídeos novos):
+```
+1. Warp ativo + renovar cookie do Metabase (pasta da Limpeza)
+2. py depara_metabase.py --refresh      (atualiza o gz local, ~1 min)
+3. py sync_depara_supabase.py           (sobe o de→para pro Supabase, ~poucos min)
+```
+**Passos manuais 1× antes do 1º uso:** aplicar `supabase/schema_depara.sql` no Supabase
+(Dashboard → SQL Editor → Run); e o worker do VPS precisa de `git pull` + restart (o novo
+`depara_do_supabase` do `montar_payload`). Aceite: re-sincronizar → o curso "Língua
+Portuguesa DMAE" deixa de mostrar "0 com data" (os 123 vídeos com ID antigo casam).
+*Futuro:* se vier token de API do Metabase, troca-se só o publicador (o consumo fica igual).
+
 **⚠ Pendências da sessão 9 (aceite manual do Clovis):**
 1. Push da branch + PR → `main` (login interativo do Clovis; merge deploya no Vercel).
 2. Aceite do spec: operador dispara → worker (VPS) processa → concurso no seletor;
