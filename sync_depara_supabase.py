@@ -20,6 +20,7 @@ import sync_supabase  # reusa _config / _headers
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 
