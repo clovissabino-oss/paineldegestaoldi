@@ -26,6 +26,34 @@ except Exception:
     pass
 
 
+def depara_do_supabase(rest, key, con, extracao_id):
+    """Monta o de→para {video_id: {data,...}} a partir da tabela depara_video,
+    só para os video_id_antigo do snapshot. Shape idêntico ao gz (painel.dados_avaliacao
+    usa .get(vid).get('data')). Devolve {} se não houver ids ou a tabela falhar."""
+    ids = [r[0] for r in con.execute(
+        "SELECT DISTINCT video_id_antigo FROM blocos "
+        "WHERE extracao_id=? AND video_id_antigo IS NOT NULL AND video_id_antigo!=''",
+        (extracao_id,))]
+    if not ids:
+        return {}
+    depara = {}
+    try:
+        for lote in (ids[i:i + 500] for i in range(0, len(ids), 500)):
+            lista = ",".join(lote)
+            r = requests.get(f"{rest}/depara_video",
+                             headers=_headers(key),
+                             params={"video_id": f"in.({lista})", "select": "*"}, timeout=60)
+            r.raise_for_status()
+            for row in r.json():
+                vid = row.get("video_id")
+                if vid is not None:
+                    depara[str(vid)] = row
+    except Exception as e:  # de→para é enriquecimento: falha não derruba o sync
+        print(f"[sync] de→para do Supabase falhou (segue sem data): {e}")
+        return {}
+    return depara
+
+
 def montar_payload(con):
     """Monta as linhas de upsert a partir do snapshot mais recente do conteudo.db.
 
@@ -34,7 +62,8 @@ def montar_payload(con):
     ext = con.execute("SELECT * FROM extracoes ORDER BY id DESC LIMIT 1").fetchone()
     if ext is None:
         return None
-    depara = painel._depara()
+    url, key = _config()
+    depara = depara_do_supabase(f"{url}/rest/v1", key, con, ext["id"])
     cursos = con.execute(
         "SELECT c.curso_id, c.nome, c.autores FROM cursos c WHERE c.extracao_id=? "
         "AND EXISTS (SELECT 1 FROM aulas a WHERE a.extracao_id=c.extracao_id "
