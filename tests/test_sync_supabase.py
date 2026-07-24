@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import banco_conteudo
 import painel
@@ -35,6 +36,20 @@ class TestMontarPayload(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.con = _fixture(os.path.join(self.tmp, "conteudo.db"))
 
+        # Isola montar_payload de rede: nem lê supabase.json local nem bate na
+        # tabela depara_video de verdade — determinístico e offline.
+        patcher_config = mock.patch("sync_supabase._config",
+                                     return_value=("http://mock", "chave-mock"))
+        patcher_config.start()
+        self.addCleanup(patcher_config.stop)
+
+        resposta_vazia = mock.Mock()
+        resposta_vazia.raise_for_status.return_value = None
+        resposta_vazia.json.return_value = []
+        patcher_get = mock.patch("sync_supabase.requests.get", return_value=resposta_vazia)
+        patcher_get.start()
+        self.addCleanup(patcher_get.stop)
+
     def tearDown(self):
         self.con.close()
 
@@ -53,8 +68,11 @@ class TestMontarPayload(unittest.TestCase):
 
     def test_paridade_com_painel(self):
         # o número na web tem que ser LITERALMENTE o do painel.py
+        # (com o de→para do Supabase mockado como vazio no setUp, o lado do
+        # painel usa o MESMO depara vazio — comparação honesta, sem depender
+        # de rede nem de um metabase_depara.json.gz presente na máquina)
         rows = sync_supabase.montar_payload(self.con)
-        esperado = painel.dados_avaliacao(self.con, "C1", depara=painel._depara())
+        esperado = painel.dados_avaliacao(self.con, "C1", depara={})
         self.assertEqual(rows["avaliacoes"][0]["payload"], esperado)
 
     def test_pendencias_abertas(self):
