@@ -53,6 +53,12 @@
   tr:last-child td { border-bottom: 0; }
   .cap-nm { font-weight: 600; min-width: 200px; }
   .cap-nm small { display: block; color: var(--ink-3); font-weight: 400; }
+  .exp { background: none; border: 0; color: var(--ink-3); cursor: pointer; font: inherit;
+         padding: 0 6px 0 0; }
+  .exp:hover { color: var(--accent); }
+  .exp.vazio-cap { visibility: hidden; }
+  tr.item td { background: transparent; border-bottom: 1px dashed var(--border); }
+  tr.item .cap-nm { font-weight: 400; padding-left: 30px; color: var(--ink-2); }
   .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .pct-bar { display: flex; height: 10px; border-radius: 4px; overflow: hidden; margin-top: 4px; min-width: 120px; }
   .pct-bar i.r { background: var(--crit); } .pct-bar i.a { background: var(--warn); } .pct-bar i.v { background: var(--ok); }
@@ -77,6 +83,7 @@
     <label>Banca-alvo:
       <select id="selBanca"><option value="">— sem banca-alvo —</option></select>
     </label>
+    <button class="btn" id="btnExpandir" onclick="alternarTudo()">⊕ Expandir tudo</button>
     <button class="btn" onclick="baixarCSV()">⬇ CSV (Excel)</button>
     <button class="btn primario" onclick="window.print()">🖨 Imprimir / PDF</button>
   </div>
@@ -115,6 +122,22 @@
 
   let D = null;
 
+  // índices dos capítulos abertos. Fica FORA do render porque a tabela é redesenhada
+  // inteira ao trocar a banca-alvo — sem isso, trocar a banca fecharia tudo.
+  const ABERTOS = new Set();
+
+  function alternar(i) {
+    ABERTOS.has(i) ? ABERTOS.delete(i) : ABERTOS.add(i);
+    render();
+  }
+
+  function alternarTudo() {
+    const comItens = D.capitulos.map((c, i) => [c, i]).filter(([c]) => (c.itens || []).length);
+    if (ABERTOS.size >= comItens.length) ABERTOS.clear();
+    else comItens.forEach(([, i]) => ABERTOS.add(i));
+    render();
+  }
+
   async function carregarCursos() {
     const r = await fetch("/api/cursos");
     const cursos = (await r.json()).data;
@@ -128,6 +151,7 @@
   async function carregarAvaliacao(cursoId) {
     const r = await fetch("/api/avaliacao?curso_id=" + encodeURIComponent(cursoId));
     D = (await r.json()).data;
+    ABERTOS.clear();
     document.getElementById("titulo").textContent = D.curso.trim();
     document.getElementById("autores").textContent = D.autores || "";
     // bancas presentes -> seletor (ordenado por frequência)
@@ -152,18 +176,19 @@
     return banca ? (c.bancas[banca] || 0) : null;
   }
 
-  function render() {
-    if (!D) return;
+  function linhaHtml(c, ehItem, idx, aberto) {
+    const totQ = c.q_emb + c.q_txt;
+    const alvo = alvoDe(c);
     const banca = document.getElementById("selBanca").value;
-    document.querySelector("[data-alvo]").innerHTML = banca
-      ? "Qtd. banca-alvo /<br>outras · %" : "Distribuição<br>por banca";
-    document.getElementById("corpo").innerHTML = D.capitulos.map(c => {
-      const totQ = c.q_emb + c.q_txt;
-      const alvo = alvoDe(c);
-      const bancasTxt = Object.entries(c.bancas).sort((x, y) => y[1] - x[1]).slice(0, 3)
-        .map(([b, n]) => `${b.replace(" (CEBRASPE)", "")}: ${n}`).join("<br>") || "—";
-      return `<tr>
-        <td class="cap-nm">${c.nome}<small>${c.aulas} itens</small></td>
+    const bancasTxt = Object.entries(c.bancas).sort((x, y) => y[1] - x[1]).slice(0, 3)
+      .map(([b, n]) => `${b.replace(" (CEBRASPE)", "")}: ${n}`).join("<br>") || "—";
+    const nome = (c.nome || "").trim();
+    const cel1 = ehItem
+      ? `<td class="cap-nm">${c.num ? c.num + " " : ""}${nome}</td>`
+      : `<td class="cap-nm"><button class="exp${(c.itens || []).length ? "" : " vazio-cap"}"
+             onclick="alternar(${idx})">${aberto ? "▼" : "▶"}</button>${c.num ? c.num + ". " : ""}${nome}<small>${c.aulas} itens</small></td>`;
+    return `<tr${ehItem ? ' class="item"' : ""}>
+        ${cel1}
         <td class="num">${c.itens_total
             ? `<b style="color:${c.itens_mb === c.itens_total ? "var(--ok)" : "var(--warn)"}">${c.itens_mb}/${c.itens_total}</b>`
             : "—"}</td>
@@ -181,7 +206,23 @@
         <td>${faixaHtml(c.v_ate, c.v_meio, c.v_novo, c.v_com_data)}
           ${c.vids ? `<div class="pct-leg">${c.v_com_data} de ${c.vids} com data real</div>` : ""}</td>
       </tr>`;
+  }
+
+  function render() {
+    if (!D) return;
+    const banca = document.getElementById("selBanca").value;
+    document.querySelector("[data-alvo]").innerHTML = banca
+      ? "Qtd. banca-alvo /<br>outras · %" : "Distribuição<br>por banca";
+    document.getElementById("corpo").innerHTML = D.capitulos.map((c, i) => {
+      const aberto = ABERTOS.has(i);
+      const html = [linhaHtml(c, false, i, aberto)];
+      if (aberto) (c.itens || []).forEach(it => html.push(linhaHtml(it, true, i, false)));
+      return html.join("");
     }).join("");
+
+    const comItens = D.capitulos.filter(c => (c.itens || []).length).length;
+    document.getElementById("btnExpandir").textContent =
+      ABERTOS.size >= comItens && comItens ? "⊖ Recolher tudo" : "⊕ Expandir tudo";
 
     const tot = k => D.capitulos.reduce((s, c) => s + (c[k] || 0), 0);
     const totQ = tot("q_emb") + tot("q_txt");
