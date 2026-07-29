@@ -167,6 +167,61 @@ def _num_item(chave):
     return ".".join(str(x) for x in chave[1]) if chave[0] == 0 and chave[1] else ""
 
 
+_CONTADORES = ("q_emb", "q_txt", "itens_mb", "itens_total", "q_ate", "q_meio", "q_novo",
+               "q_com_ano", "sol_texto", "sol_video", "vids", "dur", "v_com_data",
+               "v_ate", "v_meio", "v_novo")
+
+
+def _metricas_zeradas(nome, num, aulas=1):
+    """Linha da planilha de avaliação. Capítulo e item usam o MESMO formato — o item é
+    uma linha com aulas=1, o que deixa tela e CSV desenharem os dois níveis igual."""
+    m = {"nome": nome, "num": num, "aulas": aulas, "bancas": {}}
+    m.update({k: 0 for k in _CONTADORES})
+    return m
+
+
+def _acumular(m, b, depara, corte_crit, corte_aten):
+    """Aplica um bloco sobre uma linha de métricas."""
+    def faixa(pref, ano):
+        m["q_com_ano" if pref == "q" else "v_com_data"] += 1
+        if ano <= corte_crit:
+            m[f"{pref}_ate"] += 1
+        elif ano <= corte_aten:
+            m[f"{pref}_meio"] += 1
+        else:
+            m[f"{pref}_novo"] += 1
+
+    if b["tipo"] == "question":
+        m["q_emb"] += 1
+        m["sol_texto"] += b["tem_solucao"] or 0
+        m["sol_video"] += b["tem_video_solucao"] or 0
+        if b["banca"]:
+            m["bancas"][b["banca"]] = m["bancas"].get(b["banca"], 0) + 1
+        if b["ano"]:
+            faixa("q", b["ano"])
+    elif b["tipo"] == "tiptap" and (b["qtd_questoes_texto"] or 0) > 0:
+        m["q_txt"] += b["qtd_questoes_texto"]
+        for ref in (json.loads(b["meta"] or "{}").get("questoes_texto") or []):
+            if ref.get("banca"):
+                m["bancas"][ref["banca"]] = m["bancas"].get(ref["banca"], 0) + 1
+            if ref.get("ano"):
+                faixa("q", ref["ano"])
+    elif b["tipo"] in ("videoMyDocuments", "cast", "youtube"):
+        m["vids"] += 1
+        m["dur"] += b["duracao_seg"] or 0
+        data = ((depara or {}).get(b["video_id_antigo"]) or {}).get("data") or ""
+        if data[:4].isdigit():
+            faixa("v", int(data[:4]))
+
+
+def _somar(destino, origem):
+    """Soma uma linha na outra: números somam, mapa de bancas mescla."""
+    for k in _CONTADORES:
+        destino[k] += origem[k]
+    for banca, n in origem["bancas"].items():
+        destino["bancas"][banca] = destino["bancas"].get(banca, 0) + n
+
+
 def dados_avaliacao(con, curso_id, depara=None):
     """Planilha de avaliação por capítulo do LDI (formato aprovado — mockup v6)."""
     e = con.execute("SELECT MAX(extracao_id) FROM cursos WHERE curso_id=?",
@@ -183,57 +238,37 @@ def dados_avaliacao(con, curso_id, depara=None):
             "SELECT item_id, nome, path, vinculado_mb FROM aulas "
             "WHERE extracao_id=? AND curso_id=? AND capitulo_id=?",
             (e, curso_id, cap["capitulo_id"])).fetchall()
-        itens = [r["item_id"] for r in linhas]
         chave_cap = _chave_capitulo([r["path"] for r in linhas], cap["nome"])
-        c = {"nome": cap["nome"], "num": _num_capitulo(chave_cap), "aulas": len(itens),
-             "q_emb": 0, "q_txt": 0,
-             "itens_mb": 0, "itens_total": 0,
-             "bancas": {}, "q_ate": 0, "q_meio": 0, "q_novo": 0, "q_com_ano": 0,
-             "sol_texto": 0, "sol_video": 0, "vids": 0, "dur": 0,
-             "v_com_data": 0, "v_ate": 0, "v_meio": 0, "v_novo": 0}
-        caps.append(c)
+
+        itens, por_id = [], {}
+        for r in linhas:
+            chave = _chave_item(r["path"], r["nome"])
+            m = _metricas_zeradas(r["nome"] or "", _num_item(chave))
+            m["_chave"] = chave
+            if r["vinculado_mb"] is not None:
+                m["itens_total"] = 1
+                m["itens_mb"] = 1 if r["vinculado_mb"] else 0
+            itens.append(m)
+            por_id[r["item_id"]] = m
+
+        if por_id:
+            # UMA consulta por capítulo (como antes) — os baldes são separados aqui.
+            marks = ",".join("?" * len(por_id))
+            for b in con.execute(
+                    f"SELECT item_id, tipo, banca, ano, tem_solucao, tem_video_solucao, "
+                    f"video_id_antigo, duracao_seg, qtd_questoes_texto, meta FROM blocos "
+                    f"WHERE extracao_id=? AND item_id IN ({marks})", (e, *por_id)):
+                m = por_id.get(b["item_id"])
+                if m is not None:
+                    _acumular(m, b, depara, corte_crit, corte_aten)
+
+        itens.sort(key=lambda m: m["_chave"])
+        c = _metricas_zeradas(cap["nome"], _num_capitulo(chave_cap), aulas=len(itens))
+        for m in itens:
+            _somar(c, m)
         c["_chave"] = chave_cap
-        conhecidos = [r["vinculado_mb"] for r in linhas if r["vinculado_mb"] is not None]
-        c["itens_total"] = len(conhecidos)
-        c["itens_mb"] = sum(1 for v in conhecidos if v)
-        if not itens:
-            continue
-
-        def faixa(pref, ano):
-            c["q_com_ano" if pref == "q" else "v_com_data"] += 1
-            if ano <= corte_crit:
-                c[f"{pref}_ate"] += 1
-            elif ano <= corte_aten:
-                c[f"{pref}_meio"] += 1
-            else:
-                c[f"{pref}_novo"] += 1
-
-        marks = ",".join("?" * len(itens))
-        for b in con.execute(
-                f"SELECT tipo, banca, ano, tem_solucao, tem_video_solucao, video_id_antigo, "
-                f"duracao_seg, qtd_questoes_texto, meta FROM blocos "
-                f"WHERE extracao_id=? AND item_id IN ({marks})", (e, *itens)):
-            if b["tipo"] == "question":
-                c["q_emb"] += 1
-                c["sol_texto"] += b["tem_solucao"] or 0
-                c["sol_video"] += b["tem_video_solucao"] or 0
-                if b["banca"]:
-                    c["bancas"][b["banca"]] = c["bancas"].get(b["banca"], 0) + 1
-                if b["ano"]:
-                    faixa("q", b["ano"])
-            elif b["tipo"] == "tiptap" and (b["qtd_questoes_texto"] or 0) > 0:
-                c["q_txt"] += b["qtd_questoes_texto"]
-                for ref in (json.loads(b["meta"] or "{}").get("questoes_texto") or []):
-                    if ref.get("banca"):
-                        c["bancas"][ref["banca"]] = c["bancas"].get(ref["banca"], 0) + 1
-                    if ref.get("ano"):
-                        faixa("q", ref["ano"])
-            elif b["tipo"] in ("videoMyDocuments", "cast", "youtube"):
-                c["vids"] += 1
-                c["dur"] += b["duracao_seg"] or 0
-                data = ((depara or {}).get(b["video_id_antigo"]) or {}).get("data") or ""
-                if data[:4].isdigit():
-                    faixa("v", int(data[:4]))
+        c["itens"] = [{k: v for k, v in m.items() if k != "_chave"} for m in itens]
+        caps.append(c)
     caps.sort(key=lambda c: c["_chave"])
     for c in caps:
         c.pop("_chave")
