@@ -13,6 +13,7 @@ import argparse
 import gzip
 import json
 import os
+import re
 import sys
 import threading
 import webbrowser
@@ -120,6 +121,52 @@ def _depara():
     return _DEPARA["cache"]
 
 
+_RE_NUM_NOME = re.compile(r"^\s*(\d+)")
+
+
+def _chave_path(path):
+    """'13.1' -> (13, 1). Devolve () quando não há nenhum componente numérico.
+
+    A ordem do LDI vem daqui: `capitulos.ordem` é zero em toda a base (a API manda
+    order_index=0), então o path da aula é a única fonte real de posição — e ele é
+    relativo ao curso (o mesmo item tem path diferente em cada pacote).
+    """
+    partes = [p.strip() for p in str(path or "").split(".") if p.strip() != ""]
+    if not any(p.isdigit() for p in partes):
+        return ()
+    return tuple(int(p) if p.isdigit() else 0 for p in partes)
+
+
+def _chave_capitulo(paths, nome):
+    """Ordem do capítulo: menor path entre os itens; sem itens, o número do nome;
+    sem nada disso, vai para o fim em ordem alfabética. Nunca lança."""
+    nm = (nome or "").strip().lower()
+    chaves = [k for k in (_chave_path(p) for p in paths) if k]
+    if chaves:
+        return (0, min(chaves), nm)
+    achado = _RE_NUM_NOME.match(nome or "")
+    if achado:
+        return (0, (int(achado.group(1)),), nm)
+    return (1, (), nm)
+
+
+def _chave_item(path, nome):
+    """Ordem do item dentro do capítulo; sem path utilizável, vai para o fim."""
+    nm = (nome or "").strip().lower()
+    k = _chave_path(path)
+    return (0, k, nm) if k else (1, (), nm)
+
+
+def _num_capitulo(chave):
+    """Numeração exibida do capítulo: '13'."""
+    return str(chave[1][0]) if chave[0] == 0 and chave[1] else ""
+
+
+def _num_item(chave):
+    """Numeração exibida do item: '13.1'."""
+    return ".".join(str(x) for x in chave[1]) if chave[0] == 0 and chave[1] else ""
+
+
 def dados_avaliacao(con, curso_id, depara=None):
     """Planilha de avaliação por capítulo do LDI (formato aprovado — mockup v6)."""
     e = con.execute("SELECT MAX(extracao_id) FROM cursos WHERE curso_id=?",
@@ -131,16 +178,21 @@ def dados_avaliacao(con, curso_id, depara=None):
 
     caps = []
     for cap in con.execute("SELECT capitulo_id, nome FROM capitulos "
-                           "WHERE extracao_id=? AND curso_id=? ORDER BY ordem", (e, curso_id)):
-        itens = [r[0] for r in con.execute(
-            "SELECT item_id FROM aulas WHERE extracao_id=? AND curso_id=? AND capitulo_id=?",
-            (e, curso_id, cap["capitulo_id"]))]
-        c = {"nome": cap["nome"], "aulas": len(itens), "q_emb": 0, "q_txt": 0,
+                           "WHERE extracao_id=? AND curso_id=?", (e, curso_id)):
+        linhas = con.execute(
+            "SELECT item_id, nome, path FROM aulas "
+            "WHERE extracao_id=? AND curso_id=? AND capitulo_id=?",
+            (e, curso_id, cap["capitulo_id"])).fetchall()
+        itens = [r["item_id"] for r in linhas]
+        chave_cap = _chave_capitulo([r["path"] for r in linhas], cap["nome"])
+        c = {"nome": cap["nome"], "num": _num_capitulo(chave_cap), "aulas": len(itens),
+             "q_emb": 0, "q_txt": 0,
              "itens_mb": 0, "itens_total": 0,
              "bancas": {}, "q_ate": 0, "q_meio": 0, "q_novo": 0, "q_com_ano": 0,
              "sol_texto": 0, "sol_video": 0, "vids": 0, "dur": 0,
              "v_com_data": 0, "v_ate": 0, "v_meio": 0, "v_novo": 0}
         caps.append(c)
+        c["_chave"] = chave_cap
         if not itens:
             continue
         marks_i = ",".join("?" * len(itens))
@@ -186,6 +238,9 @@ def dados_avaliacao(con, curso_id, depara=None):
                 data = ((depara or {}).get(b["video_id_antigo"]) or {}).get("data") or ""
                 if data[:4].isdigit():
                     faixa("v", int(data[:4]))
+    caps.sort(key=lambda c: c["_chave"])
+    for c in caps:
+        c.pop("_chave")
     return {"curso": curso["nome"], "autores": curso["autores"] or "", "capitulos": caps}
 
 
