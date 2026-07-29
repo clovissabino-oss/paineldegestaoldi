@@ -1,6 +1,6 @@
 # 🎬 Extrator LDI — Estado atual (norte da próxima sessão)
 
-_Última atualização: 21/07/2026 (sessão 9: Fase 4 — coleta, cookie e fila pela interface web)._
+_Última atualização: 29/07/2026 (sessão 10: avaliação por item + ordem real do curso)._
 
 Este arquivo é o **ponto de partida** de qualquer nova sessão. Para o passo a passo
 de uso, veja o `TUTORIAL.md`. Para a visão do projeto, a memória do Claude
