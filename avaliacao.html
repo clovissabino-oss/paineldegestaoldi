@@ -132,6 +132,7 @@
   }
 
   function alternarTudo() {
+    if (!D) return;
     const comItens = D.capitulos.map((c, i) => [c, i]).filter(([c]) => (c.itens || []).length);
     if (ABERTOS.size >= comItens.length) ABERTOS.clear();
     else comItens.forEach(([, i]) => ABERTOS.add(i));
