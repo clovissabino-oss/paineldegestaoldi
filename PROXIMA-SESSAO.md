@@ -140,7 +140,8 @@ houver API oficial do Metabase, buscar por nome direto na tela.
 `py -m PyInstaller --onefile --clean --name VisualizadorLDI --add-data "ui.html;." --add-data "estoque.html;." visualizador.py`
 Sem isso, o `.exe` serve a UI antiga (o código-fonte `ui.html`/`visualizador.py` já está novo).
 
-Projeto agora versionado em `github.com/clovissabino-oss/videosldi`
+Projeto agora versionado em `github.com/clovissabino-oss/paineldegestaoldi`
+(criado como `videosldi` e renomeado depois; o nome antigo só resolve por redirect)
 (branch de trabalho `feat/painel-cookie-extracao`).
 
 ## ✅ Sessão 5 (05-06/07): fundação do Painel de Conteúdo (coletor + conteudo.db)
