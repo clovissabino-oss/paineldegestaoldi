@@ -180,7 +180,7 @@ def dados_avaliacao(con, curso_id, depara=None):
     for cap in con.execute("SELECT capitulo_id, nome FROM capitulos "
                            "WHERE extracao_id=? AND curso_id=?", (e, curso_id)):
         linhas = con.execute(
-            "SELECT item_id, nome, path FROM aulas "
+            "SELECT item_id, nome, path, vinculado_mb FROM aulas "
             "WHERE extracao_id=? AND curso_id=? AND capitulo_id=?",
             (e, curso_id, cap["capitulo_id"])).fetchall()
         itens = [r["item_id"] for r in linhas]
@@ -193,15 +193,11 @@ def dados_avaliacao(con, curso_id, depara=None):
              "v_com_data": 0, "v_ate": 0, "v_meio": 0, "v_novo": 0}
         caps.append(c)
         c["_chave"] = chave_cap
+        conhecidos = [r["vinculado_mb"] for r in linhas if r["vinculado_mb"] is not None]
+        c["itens_total"] = len(conhecidos)
+        c["itens_mb"] = sum(1 for v in conhecidos if v)
         if not itens:
             continue
-        marks_i = ",".join("?" * len(itens))
-        row_mb = con.execute(
-            f"SELECT COUNT(*), SUM(vinculado_mb) FROM aulas WHERE extracao_id=? "
-            f"AND vinculado_mb IS NOT NULL AND item_id IN ({marks_i})",
-            (e, *itens)).fetchone()
-        c["itens_total"] = row_mb[0] or 0
-        c["itens_mb"] = row_mb[1] or 0
 
         def faixa(pref, ano):
             c["q_com_ano" if pref == "q" else "v_com_data"] += 1
