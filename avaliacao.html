@@ -245,20 +245,28 @@
     if (!D) return;
     const banca = document.getElementById("selBanca").value;
     const esc = s => `"${String(s ?? "").replace(/"/g, '""')}"`;
-    const linhas = [["capitulo", "aulas", "itens_no_mb", "questoes_total", "questoes_embedadas", "questoes_em_texto",
+    const linhas = [["nivel", "num", "capitulo", "aulas", "itens_no_mb", "questoes_total",
+      "questoes_embedadas", "questoes_em_texto",
       "qtd_banca_alvo", "qtd_outras_bancas", "pct_banca_alvo",
       "pct_prova_faixa_critica", "pct_prova_faixa_media", "pct_prova_faixa_recente", "questoes_com_prova",
       "emb_com_solucao_texto", "emb_com_video_solucao",
       "videos", "tempo_videos", "videos_com_data",
       "pct_grav_faixa_critica", "pct_grav_faixa_media", "pct_grav_faixa_recente"]];
-    D.capitulos.forEach(c => {
+    // nas linhas de item, a coluna "capitulo" carrega o nome do item e "aulas" vale 1;
+    // filtrar nivel=capitulo devolve exatamente o arquivo antigo.
+    const push = (c, nivel) => {
       const totQ = c.q_emb + c.q_txt;
       const alvo = banca ? (c.bancas[banca] || 0) : "";
-      linhas.push([c.nome, c.aulas, c.itens_total ? `${c.itens_mb}/${c.itens_total}` : "—", totQ, c.q_emb, c.q_txt,
+      linhas.push([nivel, c.num || "", c.nome, c.aulas,
+        c.itens_total ? `${c.itens_mb}/${c.itens_total}` : "—", totQ, c.q_emb, c.q_txt,
         alvo, banca ? totQ - alvo : "", banca ? pc(alvo, totQ) : "",
         pc(c.q_ate, c.q_com_ano), pc(c.q_meio, c.q_com_ano), pc(c.q_novo, c.q_com_ano), c.q_com_ano,
         c.sol_texto, c.sol_video, c.vids, dur(c.dur), c.v_com_data,
         pc(c.v_ate, c.v_com_data), pc(c.v_meio, c.v_com_data), pc(c.v_novo, c.v_com_data)]);
+    };
+    D.capitulos.forEach(c => {
+      push(c, "capitulo");
+      (c.itens || []).forEach(it => push(it, "item"));
     });
     const csv = "﻿" + linhas.map(l => l.map(esc).join(";")).join("\r\n");
     const a = document.createElement("a");
