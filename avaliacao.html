@@ -180,11 +180,6 @@
     <div class="pct-bar"><i class="r" style="flex:${a || 0}"></i><i class="a" style="flex:${b || 0}"></i><i class="v" style="flex:${c || 0}"></i></div>`
     : '<span class="vazio">—</span>';
 
-  function alvoDe(c) {
-    const banca = document.getElementById("selBanca").value;
-    return banca ? (c.bancas[banca] || 0) : null;
-  }
-
   // Valores derivados de uma linha (capítulo ou item). Compartilhado entre a tela e o
   // relatório HTML — se divergirem, o relatório mente sem ninguém notar.
   function valoresLinha(c) {
