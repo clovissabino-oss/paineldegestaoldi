@@ -263,7 +263,7 @@ def dados_avaliacao(con, curso_id, depara=None):
                     _acumular(m, b, depara, corte_crit, corte_aten)
 
         itens.sort(key=lambda m: m["_chave"])
-        c = _metricas_zeradas(cap["nome"], _num_capitulo(chave_cap), aulas=len(itens))
+        c = _metricas_zeradas(cap["nome"] or "", _num_capitulo(chave_cap), aulas=len(itens))
         for m in itens:
             _somar(c, m)
         c["_chave"] = chave_cap
