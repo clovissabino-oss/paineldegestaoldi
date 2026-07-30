@@ -1,6 +1,6 @@
 # 🎬 Extrator LDI — Estado atual (norte da próxima sessão)
 
-_Última atualização: 21/07/2026 (sessão 9: Fase 4 — coleta, cookie e fila pela interface web)._
+_Última atualização: 29/07/2026 (sessão 10: avaliação por item + ordem real do curso)._
 
 Este arquivo é o **ponto de partida** de qualquer nova sessão. Para o passo a passo
 de uso, veja o `TUTORIAL.md`. Para a visão do projeto, a memória do Claude
@@ -140,7 +140,8 @@ houver API oficial do Metabase, buscar por nome direto na tela.
 `py -m PyInstaller --onefile --clean --name VisualizadorLDI --add-data "ui.html;." --add-data "estoque.html;." visualizador.py`
 Sem isso, o `.exe` serve a UI antiga (o código-fonte `ui.html`/`visualizador.py` já está novo).
 
-Projeto agora versionado em `github.com/clovissabino-oss/videosldi`
+Projeto agora versionado em `github.com/clovissabino-oss/paineldegestaoldi`
+(criado como `videosldi` e renomeado depois; o nome antigo só resolve por redirect)
 (branch de trabalho `feat/painel-cookie-extracao`).
 
 ## ✅ Sessão 5 (05-06/07): fundação do Painel de Conteúdo (coletor + conteudo.db)
@@ -364,6 +365,64 @@ Portuguesa DMAE" deixa de mostrar "0 com data" (os 123 vídeos com ID antigo cas
 4. Minors deferidos (lista no ledger `.superpowers/sdd/progress.md`): texto do banner
    expandido além do brief (confirmar), `import "server-only"` em `lib/coleta.ts`,
    `dataLocal` duplicado, marcador `__Secure-SID=` case-sensitive.
+
+---
+
+## ✅ Sessão 10 (29/07): avaliação por item + ordem real do curso
+
+A tela `/avaliacao` desce do capítulo ao **item** (expandir/recolher, botão "expandir tudo")
+e sai na **ordem do curso**. Spec: `docs\superpowers\specs\2026-07-29-avaliacao-por-item-e-ordem-design.md`;
+plano: `docs\superpowers\plans\2026-07-29-avaliacao-por-item.md`.
+
+**Achado da ordem:** `capitulos.ordem` é **zero nos 2.547 capítulos** da base — a API devolve
+`order_index=0` para todos, então o `ORDER BY ordem` do painel era um no-op. A ordem real vem
+do **`path` da aula** (`13.1` = capítulo 13, item 1), que é **relativo ao curso** (o mesmo item
+tem path `6.4` num pacote e `1.4` noutro). Derivada na leitura → conserta **retroativamente
+todos os snapshots**, sem recoleta e sem migração.
+
+**Correção junto:** a contagem de "Itens no MB" não filtrava por curso e contava o item
+compartilhado uma vez por pacote (1.990 dos 3.612 itens do BACEN vivem em mais de um curso).
+**A lógica tem guarda de regressão automatizada de verdade**:
+`tests/test_painel_itens.py::test_item_compartilhado_conta_uma_vez_no_curso` semeia o mesmo
+`item_id` em dois cursos e exige `(itens_mb, itens_total) == (1, 1)` — a consulta antiga
+devolveria `(2, 2)` no mesmo fixture, ou seja, o teste **discrimina** o código velho do novo
+(não é tautológico). Antes/depois medido em
+`docs\superpowers\verificacao-2026-07-29-itens-mb.md` — **mas com uma ressalva importante**:
+o `conteudo.db` local (4 extrações, 06/07 e 20/07) é **anterior** ao passo
+`_completar_vinculo_mb` (23/07) e tem `vinculado_mb` **nulo em todas as 24.949 linhas de
+`aulas`**, então as duas contagens (antiga e nova) dão sempre `0/0` — **0 de 181 cursos com
+diferença, resultado degenerado, não confirmação numérica da correção**. Os cursos de controle
+Amparo/DMAE também **não existem** nesse `conteudo.db` (são só sondados via API, conforme já
+registrado na sessão 9 — "falta o aceite real do Clovis"). Ou seja: **o que falta não é
+verificação da lógica** (essa está coberta pelo teste acima) — **é só a medição numérica em
+base real**, que precisa rodar no `conteudo.db` do Clovis (que tem acesso ao admin do LDI para
+completar o vínculo e coletou os cursos de teste Amparo/DMAE).
+
+**Também:** o capítulo virou a **soma dos seus itens** (pai não tem como divergir dos filhos);
+o CSV ganhou as colunas `nivel` e `num` com uma linha por capítulo e uma por item.
+
+**Sem mudança de schema** (SQLite ou Supabase) e **sem recoleta**. O worker do VPS não precisa
+de `git pull` — nada em `coletor_ldi.py`/`worker_coleta.py` mudou.
+
+**⚠ Falta:**
+1. Push da branch `feat/avaliacao-por-item` + PR → `main` (login interativo do Clovis; o
+   merge deploya no Vercel).
+2. Rodar a verificação de `docs\superpowers\verificacao-2026-07-29-itens-mb.md` no
+   `conteudo.db` do Clovis (pós-23/07, com Amparo/DMAE coletados) para confirmar de fato os
+   números antes/depois e os controles 68/75 e 319/345 — não verificável nesta máquina.
+3. Conferir a ordem dos capítulos de um curso qualquer contra o admin do LDI no navegador
+   (aceite humano — exige cookie válido, não tentado por este agente).
+
+**Achados menores deixados para depois** (a revisão final triou como não-bloqueantes):
+- `sync_supabase.enviar()` não tem teste batendo em `requests.post` — o loteamento novo não
+  está travado por teste. A lacuna já existia antes desta branch, mas é o caminho que publica
+  para o time: vale um teste com `requests.post` mockado contando chamadas e tamanho de lote.
+- O `aria-label` novo do botão de expandir interpola o nome do capítulo dentro de um atributo
+  entre aspas duplas. Nome com `"` literal trunca o atributo e quebra o rótulo do leitor de
+  tela em silêncio. Escapar as aspas resolve.
+- **Numeração:** a tela mostra a **posição real** (selo cinza, derivada do `path`) separada do
+  número escrito no título, que é o **rótulo do autor** — eles divergem em 70 de 97 capítulos
+  numerados porque os rótulos envelheceram. Ver "13." na posição 11 é esperado e correto.
 
 ---
 
