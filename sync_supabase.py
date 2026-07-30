@@ -121,6 +121,13 @@ def esta_configurado():
         os.path.dirname(os.path.abspath(__file__)), "supabase.json"))
 
 
+# payload de avaliacao_curso cresceu 8x com a chave "itens" (~4 MB no snapshot do BACEN,
+# maior curso sozinho com 234 KB) — fatiar em lotes evita estourar limite de corpo/timeout
+# do PostgREST num POST único. A atomicidade de visibilidade não muda: "pronto" só vira
+# true no passo 4, depois de todos os lotes gravados.
+TAMANHO_LOTE_AVALIACOES = 25
+
+
 def _headers(key, prefer=None):
     h = {"apikey": key, "Authorization": f"Bearer {key}",
          "Content-Type": "application/json"}
@@ -154,11 +161,12 @@ def enviar(rows, url=None, key=None):
                             params={"snapshot_id": f"eq.{sid}"}, timeout=60)
         d.raise_for_status()
 
-    # 3. insere os filhos
+    # 3. insere os filhos (avaliacao_curso em lotes — ver TAMANHO_LOTE_AVALIACOES acima)
     avals = [{"snapshot_id": sid, **a} for a in rows["avaliacoes"]]
-    if avals:
+    for i in range(0, len(avals), TAMANHO_LOTE_AVALIACOES):
+        lote = avals[i:i + TAMANHO_LOTE_AVALIACOES]
         requests.post(f"{rest}/avaliacao_curso", headers=_headers(key),
-                      json=avals, timeout=120).raise_for_status()
+                      json=lote, timeout=120).raise_for_status()
     pend = [{"snapshot_id": sid, **p} for p in rows["pendencias"]]
     if pend:
         requests.post(f"{rest}/pendencia_resumo", headers=_headers(key),
