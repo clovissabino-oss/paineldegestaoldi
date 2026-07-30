@@ -382,17 +382,21 @@ todos os snapshots**, sem recoleta e sem migração.
 
 **Correção junto:** a contagem de "Itens no MB" não filtrava por curso e contava o item
 compartilhado uma vez por pacote (1.990 dos 3.612 itens do BACEN vivem em mais de um curso).
-Antes/depois medido em `docs\superpowers\verificacao-2026-07-29-itens-mb.md` — **mas com uma
-ressalva importante**: o `conteudo.db` local (4 extrações, 06/07 e 20/07) é **anterior** ao
-passo `_completar_vinculo_mb` (23/07) e tem `vinculado_mb` **nulo em todas as 24.949 linhas de
+**A lógica tem guarda de regressão automatizada de verdade**:
+`tests/test_painel_itens.py::test_item_compartilhado_conta_uma_vez_no_curso` semeia o mesmo
+`item_id` em dois cursos e exige `(itens_mb, itens_total) == (1, 1)` — a consulta antiga
+devolveria `(2, 2)` no mesmo fixture, ou seja, o teste **discrimina** o código velho do novo
+(não é tautológico). Antes/depois medido em
+`docs\superpowers\verificacao-2026-07-29-itens-mb.md` — **mas com uma ressalva importante**:
+o `conteudo.db` local (4 extrações, 06/07 e 20/07) é **anterior** ao passo
+`_completar_vinculo_mb` (23/07) e tem `vinculado_mb` **nulo em todas as 24.949 linhas de
 `aulas`**, então as duas contagens (antiga e nova) dão sempre `0/0` — **0 de 181 cursos com
 diferença, resultado degenerado, não confirmação numérica da correção**. Os cursos de controle
 Amparo/DMAE também **não existem** nesse `conteudo.db` (são só sondados via API, conforme já
-registrado na sessão 9 — "falta o aceite real do Clovis"). Verifiquei a lógica do vazamento
-conceitualmente (item real compartilhado entre 2 cursos do BACEN, extração 1) mas sem dado de
-`vinculado_mb` para exercitar o efeito numérico. **Medição real do antes/depois e conferência
-dos controles seguem pendentes — precisam rodar no `conteudo.db` do Clovis** (que tem acesso
-ao admin do LDI para completar o vínculo e coletou os cursos de teste Amparo/DMAE).
+registrado na sessão 9 — "falta o aceite real do Clovis"). Ou seja: **o que falta não é
+verificação da lógica** (essa está coberta pelo teste acima) — **é só a medição numérica em
+base real**, que precisa rodar no `conteudo.db` do Clovis (que tem acesso ao admin do LDI para
+completar o vínculo e coletou os cursos de teste Amparo/DMAE).
 
 **Também:** o capítulo virou a **soma dos seus itens** (pai não tem como divergir dos filhos);
 o CSV ganhou as colunas `nivel` e `num` com uma linha por capítulo e uma por item.
