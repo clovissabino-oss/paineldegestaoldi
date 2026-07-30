@@ -431,6 +431,20 @@ import, o worker precisa de `git pull` + `systemctl restart worker-coleta`.**
   número escrito no título, que é o **rótulo do autor** — eles divergem em 70 de 97 capítulos
   numerados porque os rótulos envelheceram. Ver "13." na posição 11 é esperado e correto.
 
+**Relatório HTML compartilhável (30/07):** a `/avaliacao` ganhou **📄 HTML (compartilhar)** ao
+lado do CSV — baixa um arquivo **autossuficiente** (CSS inline, **zero `<script>`**, paleta clara
+fixa) com os capítulos em `<details>` recolhidos e os itens dentro. Serve para mandar a avaliação
+a quem não tem login; o CSV continua para quem vai cruzar em planilha. Cabeçalho registra o
+frescor do dado, a hora da geração e a banca-alvo ativa, então o arquivo continua auditável meses
+depois. Usa **CSS grid, não `<table>`** — `<details>`/`<summary>` não podem envolver `<tr>`.
+Consequência aceita: no Ctrl+P sai só o que estiver aberto (um "abrir tudo" exigiria JS, e o
+zero-JS é o que faz o anexo abrir em qualquer lugar). Spec:
+`docs\superpowers\specs\2026-07-30-relatorio-html-avaliacao-design.md`; plano:
+`docs\superpowers\plans\2026-07-30-relatorio-html-avaliacao.md`.
+**Worker do VPS não precisa de `git pull`** — a mudança fica em arquivos que só os *request
+handlers* leem, e a forma do payload não muda (afirmação feita seguindo a cadeia de imports, não
+os nomes dos arquivos).
+
 ---
 
 ## 🔑 Coisas que a próxima sessão PRECISA saber
