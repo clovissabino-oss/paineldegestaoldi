@@ -247,6 +247,8 @@
 
   // Valores derivados de uma linha (capítulo ou item). Compartilhado entre a tela e o
   // relatório HTML — se divergirem, o relatório mente sem ninguém notar.
+  // bancasTxt já vem como HTML pronto (nome escapado + <br> como separador) — não serve
+  // para contexto de texto puro (CSV, textContent).
   function valoresLinha(c) {
     const banca = document.getElementById("selBanca").value;
     return {
@@ -266,7 +268,7 @@
       ? `<td class="cap-nm">${pos}${nome}</td>`
       : `<td class="cap-nm"><button class="exp${(c.itens || []).length ? "" : " vazio-cap"}"
              onclick="alternar(${idx})" aria-expanded="${aberto}"
-             aria-label="${aberto ? "recolher" : "expandir"} ${nome}">${aberto ? "▼" : "▶"}</button>${pos}${nome}<small>${c.aulas} itens</small></td>`;
+             aria-label="${aberto ? "recolher" : "expandir"} ${esc(nome)}">${aberto ? "▼" : "▶"}</button>${pos}${nome}<small>${c.aulas} itens</small></td>`;
     return `<tr${ehItem ? ' class="item"' : ""}>
         ${cel1}
         <td class="num">${c.itens_total
@@ -330,7 +332,7 @@
   function baixarCSV() {
     if (!D) return;
     const banca = document.getElementById("selBanca").value;
-    const esc = s => `"${String(s ?? "").replace(/"/g, '""')}"`;
+    const escCsv = s => `"${String(s ?? "").replace(/"/g, '""')}"`;
     const linhas = [["nivel", "num", "capitulo", "aulas", "itens_no_mb", "questoes_total",
       "questoes_embedadas", "questoes_em_texto",
       "qtd_banca_alvo", "qtd_outras_bancas", "pct_banca_alvo",
@@ -355,7 +357,7 @@
       push(c, "capitulo");
       (c.itens || []).forEach(it => push(it, "item"));
     });
-    const csv = "﻿" + linhas.map(l => l.map(esc).join(";")).join("\r\n");
+    const csv = "﻿" + linhas.map(l => l.map(escCsv).join(";")).join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     a.download = "avaliacao_" + (D.curso || "disciplina").trim().slice(0, 40).replace(/\W+/g, "_") + ".csv";
@@ -388,11 +390,13 @@
         <span>${totQ === 0 ? '<span class="vaz">—</span>' : banca
           ? `${alvo} / ${totQ - alvo}<br><b>${pc(alvo, totQ)}</b>`
           : `<small>${bancasTxt}</small>`}</span>
-        <span>${faixa(c.q_ate, c.q_meio, c.q_novo, c.q_com_ano)}</span>
+        <span class="faixa">${faixa(c.q_ate, c.q_meio, c.q_novo, c.q_com_ano)}${
+          c.q_com_ano ? `<small>${c.q_com_ano} com prova identificada</small>` : ""}</span>
         <span class="nums">${c.q_emb === 0 ? '<span class="vaz">—</span>'
           : `📝 ${c.sol_texto} (${pc(c.sol_texto, c.q_emb)})<br>🎬 ${c.sol_video} (${pc(c.sol_video, c.q_emb)})`}</span>
         <span class="nums">${c.vids} · ${dur(c.dur)}</span>
-        <span>${faixa(c.v_ate, c.v_meio, c.v_novo, c.v_com_data)}</span>`;
+        <span class="faixa">${faixa(c.v_ate, c.v_meio, c.v_novo, c.v_com_data)}${
+          c.vids ? `<small>${c.v_com_data} de ${c.vids} com data real</small>` : ""}</span>`;
     };
 
     const corpo = D.capitulos.map(c => {
@@ -453,6 +457,7 @@
   .pos{display:inline-block; min-width:2.2em; margin-right:7px; color:#8a897f;
        font-variant-numeric:tabular-nums; border-right:1px solid #e3e2dd; padding-right:6px}
   .barra-pct{display:flex; height:8px; border-radius:4px; overflow:hidden; margin-top:3px}
+  .faixa small{display:block; color:#8a897f; margin-top:2px}
   .vaz{color:#8a897f}
   small{font-size:11px}
   footer{margin-top:20px; color:#8a897f; font-size:11px; text-align:center}
@@ -478,8 +483,8 @@ ${corpo}
 
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
-    const d = new Date();  // data LOCAL (convenção do projeto — toISOString viraria o dia)
-    const dia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    // data LOCAL (convenção do projeto — toISOString viraria o dia); reusa `agora` do topo
+    const dia = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
     a.download = "avaliacao_" + (D.curso || "disciplina").trim().slice(0, 40).replace(/\W+/g, "_") + "_" + dia + ".html";
     a.click();
     URL.revokeObjectURL(a.href);

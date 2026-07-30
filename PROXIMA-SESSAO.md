@@ -424,9 +424,6 @@ import, o worker precisa de `git pull` + `systemctl restart worker-coleta`.**
 - `sync_supabase.enviar()` não tem teste batendo em `requests.post` — o loteamento novo não
   está travado por teste. A lacuna já existia antes desta branch, mas é o caminho que publica
   para o time: vale um teste com `requests.post` mockado contando chamadas e tamanho de lote.
-- O `aria-label` novo do botão de expandir interpola o nome do capítulo dentro de um atributo
-  entre aspas duplas. Nome com `"` literal trunca o atributo e quebra o rótulo do leitor de
-  tela em silêncio. Escapar as aspas resolve.
 - **Numeração:** a tela mostra a **posição real** (selo cinza, derivada do `path`) separada do
   número escrito no título, que é o **rótulo do autor** — eles divergem em 70 de 97 capítulos
   numerados porque os rótulos envelheceram. Ver "13." na posição 11 é esperado e correto.
