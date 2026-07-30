@@ -102,8 +102,12 @@ por:
     const { banca, totQ, alvo, bancasTxt } = valoresLinha(c);
 ```
 
-⚠ **Não** apague a função `alvoDe` — ela continua sendo usada em outro lugar do arquivo. O resto
-do corpo de `linhaHtml` (as 8 células) **não muda**.
+⚠ **Apague a função `alvoDe`** depois da substituição. Ela tinha **exatamente um** call site — a
+linha `const alvo = alvoDe(c);` que sai aqui —, então vira código morto. (Uma versão anterior
+deste plano mandava mantê-la, alegando outro uso; era falso, e foi corrigido em 30/07 depois de o
+implementer da Task 1 conferir e reportar.)
+
+O resto do corpo de `linhaHtml` (as 8 células) **não muda**.
 
 - [ ] **Step 3: Verificar que a tela não mudou**
 
