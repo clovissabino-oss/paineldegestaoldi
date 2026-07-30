@@ -401,8 +401,15 @@ completar o vínculo e coletou os cursos de teste Amparo/DMAE).
 **Também:** o capítulo virou a **soma dos seus itens** (pai não tem como divergir dos filhos);
 o CSV ganhou as colunas `nivel` e `num` com uma linha por capítulo e uma por item.
 
-**Sem mudança de schema** (SQLite ou Supabase) e **sem recoleta**. O worker do VPS não precisa
-de `git pull` — nada em `coletor_ldi.py`/`worker_coleta.py` mudou.
+**Sem mudança de schema** (SQLite ou Supabase) e **sem recoleta**.
+
+⚠ **CORRIGIDO em 29/07 — eu tinha escrito aqui que "o worker do VPS não precisa de `git pull`,
+nada em `coletor_ldi.py`/`worker_coleta.py` mudou". Errado no efeito, e custou um incidente.**
+O `coletor_ldi.py` importa o `sync_supabase.py`, que importa o **`painel.py`** — é o `painel.py`
+do VPS que **molda o payload publicado**. Worker desatualizado publica payload no formato
+antigo (sem `num`, sem `itens`, na ordem velha), e a web mostra a tela com aspecto de quebrada.
+**Regra que vale daqui pra frente: mexeu em qualquer módulo que o `coletor_ldi.py` alcance por
+import, o worker precisa de `git pull` + `systemctl restart worker-coleta`.**
 
 **⚠ Falta:**
 1. Push da branch `feat/avaliacao-por-item` + PR → `main` (login interativo do Clovis; o
