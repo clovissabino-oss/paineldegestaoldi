@@ -185,12 +185,21 @@
     return banca ? (c.bancas[banca] || 0) : null;
   }
 
-  function linhaHtml(c, ehItem, idx, aberto) {
-    const totQ = c.q_emb + c.q_txt;
-    const alvo = alvoDe(c);
+  // Valores derivados de uma linha (capítulo ou item). Compartilhado entre a tela e o
+  // relatório HTML — se divergirem, o relatório mente sem ninguém notar.
+  function valoresLinha(c) {
     const banca = document.getElementById("selBanca").value;
-    const bancasTxt = Object.entries(c.bancas).sort((x, y) => y[1] - x[1]).slice(0, 3)
-      .map(([b, n]) => `${b.replace(" (CEBRASPE)", "")}: ${n}`).join("<br>") || "—";
+    return {
+      banca,
+      totQ: c.q_emb + c.q_txt,
+      alvo: banca ? (c.bancas[banca] || 0) : null,
+      bancasTxt: Object.entries(c.bancas).sort((x, y) => y[1] - x[1]).slice(0, 3)
+        .map(([b, n]) => `${b.replace(" (CEBRASPE)", "")}: ${n}`).join("<br>") || "—",
+    };
+  }
+
+  function linhaHtml(c, ehItem, idx, aberto) {
+    const { banca, totQ, alvo, bancasTxt } = valoresLinha(c);
     const nome = (c.nome || "").trim();
     const pos = c.num ? `<span class="pos">${c.num}</span>` : "";
     const cel1 = ehItem
