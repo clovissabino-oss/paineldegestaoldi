@@ -124,6 +124,9 @@
   const dur = s => { const h = Math.floor(s / 3600), m = Math.round(s % 3600 / 60);
                      return h ? `${h}h${String(m).padStart(2, "0")}` : `${m}min`; };
   const pc = (n, t) => t ? Math.round(n / t * 100) + "%" : "—";
+  // escapa texto para uso em HTML — usado na tela (bancasTxt) e no relatório gerado inteiro.
+  const esc = s => String(s ?? "").replace(/[&<>"]/g,
+    m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
   const ANO = new Date().getFullYear();
   const ROTULO = `≤${ANO - 6} · ${String(ANO - 5).slice(2)}-${String(ANO - 3).slice(2)} · ${String(ANO - 2).slice(2)}-${String(ANO).slice(2)}`;
   document.getElementById("thAnosQ").innerHTML = `% por ano da prova<br>${ROTULO}`;
@@ -190,7 +193,7 @@
       totQ: c.q_emb + c.q_txt,
       alvo: banca ? (c.bancas[banca] || 0) : null,
       bancasTxt: Object.entries(c.bancas).sort((x, y) => y[1] - x[1]).slice(0, 3)
-        .map(([b, n]) => `${b.replace(" (CEBRASPE)", "")}: ${n}`).join("<br>") || "—",
+        .map(([b, n]) => `${esc(b.replace(" (CEBRASPE)", ""))}: ${n}`).join("<br>") || "—",
     };
   }
 
@@ -303,8 +306,6 @@
   // Usa CSS grid, não <table>: <details>/<summary> não podem envolver <tr>.
   function gerarRelatorioHtml() {
     if (!D) return;
-    const esc = s => String(s ?? "").replace(/[&<>"]/g,
-      m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
     const banca = document.getElementById("selBanca").value;
     const payloadAntigo = D.capitulos.length > 0 && !("itens" in D.capitulos[0]);
     const agora = new Date();
