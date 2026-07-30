@@ -442,6 +442,19 @@ zero-JS é o que faz o anexo abrir em qualquer lugar). Spec:
 handlers* leem, e a forma do payload não muda (afirmação feita seguindo a cadeia de imports, não
 os nomes dos arquivos).
 
+⚠ **Não verificado por ninguém: a prévia do Ctrl+P.** A extensão do navegador ficou instável na
+sessão e o screenshot nunca saiu. Há motivo aritmético para conferir antes de prometer PDF ao
+time: as 8 colunas do relatório somam **1.154px mínimos** (a primeira é `minmax(230px,…)`, as
+outras sete são px fixos e não encolhem), contra ~710px imprimíveis de um A4 retrato. O navegador
+deve reduzir para ~60% — corpo de 13px vira ~8px — ou cortar as últimas colunas. **Gerar um
+relatório, abrir o Ctrl+P e olhar.** Se sair miúdo demais, o conserto é um `@media print` com
+`COLS` reduzido ou `@page{size:A4 landscape}`. Vale conferir junto: um capítulo grande aberto com
+`break-inside:avoid` (pode empurrar e deixar meia página em branco) e a rolagem horizontal da
+tela numa janela estreita.
+
+*Deixado de propósito para depois:* o relatório não reproduz as cores da tela no "Itens no MB"
+(verde/âmbar) nem o `— (só em texto)` das soluções — decisão visual, não defeito.
+
 ---
 
 ## 🔑 Coisas que a próxima sessão PRECISA saber
