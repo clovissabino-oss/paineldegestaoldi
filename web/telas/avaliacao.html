@@ -126,6 +126,7 @@
     </label>
     <button class="btn" id="btnExpandir" onclick="alternarTudo()">⊕ Expandir tudo</button>
     <button class="btn" onclick="baixarCSV()">⬇ CSV (Excel)</button>
+    <button class="btn" onclick="gerarRelatorioHtml()">📄 HTML (compartilhar)</button>
     <button class="btn primario" onclick="window.print()">🖨 Imprimir / PDF</button>
   </div>
 
@@ -156,6 +157,9 @@
   const dur = s => { const h = Math.floor(s / 3600), m = Math.round(s % 3600 / 60);
                      return h ? `${h}h${String(m).padStart(2, "0")}` : `${m}min`; };
   const pc = (n, t) => t ? Math.round(n / t * 100) + "%" : "—";
+  // escapa texto para uso em HTML — usado na tela (bancasTxt) e no relatório gerado inteiro.
+  const esc = s => String(s ?? "").replace(/[&<>"]/g,
+    m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
   const ANO = new Date().getFullYear();
   const ROTULO = `≤${ANO - 6} · ${String(ANO - 5).slice(2)}-${String(ANO - 3).slice(2)} · ${String(ANO - 2).slice(2)}-${String(ANO).slice(2)}`;
   document.getElementById("thAnosQ").innerHTML = `% por ano da prova<br>${ROTULO}`;
@@ -241,24 +245,30 @@
     <div class="pct-bar"><i class="r" style="flex:${a || 0}"></i><i class="a" style="flex:${b || 0}"></i><i class="v" style="flex:${c || 0}"></i></div>`
     : '<span class="vazio">—</span>';
 
-  function alvoDe(c) {
+  // Valores derivados de uma linha (capítulo ou item). Compartilhado entre a tela e o
+  // relatório HTML — se divergirem, o relatório mente sem ninguém notar.
+  // bancasTxt já vem como HTML pronto (nome escapado + <br> como separador) — não serve
+  // para contexto de texto puro (CSV, textContent).
+  function valoresLinha(c) {
     const banca = document.getElementById("selBanca").value;
-    return banca ? (c.bancas[banca] || 0) : null;
+    return {
+      banca,
+      totQ: c.q_emb + c.q_txt,
+      alvo: banca ? (c.bancas[banca] || 0) : null,
+      bancasTxt: Object.entries(c.bancas).sort((x, y) => y[1] - x[1]).slice(0, 3)
+        .map(([b, n]) => `${esc(b.replace(" (CEBRASPE)", ""))}: ${n}`).join("<br>") || "—",
+    };
   }
 
   function linhaHtml(c, ehItem, idx, aberto) {
-    const totQ = c.q_emb + c.q_txt;
-    const alvo = alvoDe(c);
-    const banca = document.getElementById("selBanca").value;
-    const bancasTxt = Object.entries(c.bancas).sort((x, y) => y[1] - x[1]).slice(0, 3)
-      .map(([b, n]) => `${b.replace(" (CEBRASPE)", "")}: ${n}`).join("<br>") || "—";
+    const { banca, totQ, alvo, bancasTxt } = valoresLinha(c);
     const nome = (c.nome || "").trim();
     const pos = c.num ? `<span class="pos">${c.num}</span>` : "";
     const cel1 = ehItem
       ? `<td class="cap-nm">${pos}${nome}</td>`
       : `<td class="cap-nm"><button class="exp${(c.itens || []).length ? "" : " vazio-cap"}"
              onclick="alternar(${idx})" aria-expanded="${aberto}"
-             aria-label="${aberto ? "recolher" : "expandir"} ${nome}">${aberto ? "▼" : "▶"}</button>${pos}${nome}<small>${c.aulas} itens</small></td>`;
+             aria-label="${aberto ? "recolher" : "expandir"} ${esc(nome)}">${aberto ? "▼" : "▶"}</button>${pos}${nome}<small>${c.aulas} itens</small></td>`;
     return `<tr${ehItem ? ' class="item"' : ""}>
         ${cel1}
         <td class="num">${c.itens_total
@@ -322,7 +332,7 @@
   function baixarCSV() {
     if (!D) return;
     const banca = document.getElementById("selBanca").value;
-    const esc = s => `"${String(s ?? "").replace(/"/g, '""')}"`;
+    const escCsv = s => `"${String(s ?? "").replace(/"/g, '""')}"`;
     const linhas = [["nivel", "num", "capitulo", "aulas", "itens_no_mb", "questoes_total",
       "questoes_embedadas", "questoes_em_texto",
       "qtd_banca_alvo", "qtd_outras_bancas", "pct_banca_alvo",
@@ -347,11 +357,137 @@
       push(c, "capitulo");
       (c.itens || []).forEach(it => push(it, "item"));
     });
-    const csv = "﻿" + linhas.map(l => l.map(esc).join(";")).join("\r\n");
+    const csv = "﻿" + linhas.map(l => l.map(escCsv).join(";")).join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     a.download = "avaliacao_" + (D.curso || "disciplina").trim().slice(0, 40).replace(/\W+/g, "_") + ".csv";
     a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  // Relatório HTML autossuficiente: CSS inline, ZERO <script>, paleta clara fixa (o arquivo
+  // circula por e-mail e vira PDF no Ctrl+P — herdar o tema escuro daria fundo preto).
+  // Usa CSS grid, não <table>: <details>/<summary> não podem envolver <tr>.
+  function gerarRelatorioHtml() {
+    if (!D) return;
+    const banca = document.getElementById("selBanca").value;
+    const payloadAntigo = D.capitulos.length > 0 && !("itens" in D.capitulos[0]);
+    const agora = new Date();
+    // o selo de frescor só existe na cópia web; local vem vazio e a linha é omitida
+    const frescor = (document.getElementById("frescor")?.textContent || "").trim();
+
+    const faixa = (a, b, c, tot) => tot
+      ? `<span class="nums">${pc(a, tot)} · ${pc(b, tot)} · ${pc(c, tot)}</span>
+         <span class="barra-pct"><i style="flex:${a || 0};background:#b23230"></i
+         ><i style="flex:${b || 0};background:#a06b00"></i
+         ><i style="flex:${c || 0};background:#1c6e38"></i></span>`
+      : '<span class="vaz">—</span>';
+
+    const celulas = c => {
+      const { totQ, alvo, bancasTxt } = valoresLinha(c);
+      return `
+        <span class="nums">${c.itens_total ? `${c.itens_mb}/${c.itens_total}` : "—"}</span>
+        <span class="nums">${fmt(totQ)}<small>${c.q_emb} emb. + ${c.q_txt} texto</small></span>
+        <span>${totQ === 0 ? '<span class="vaz">—</span>' : banca
+          ? `${alvo} / ${totQ - alvo}<br><b>${pc(alvo, totQ)}</b>`
+          : `<small>${bancasTxt}</small>`}</span>
+        <span class="faixa">${faixa(c.q_ate, c.q_meio, c.q_novo, c.q_com_ano)}${
+          c.q_com_ano ? `<small>${c.q_com_ano} com prova identificada</small>` : ""}</span>
+        <span class="nums">${c.q_emb === 0 ? '<span class="vaz">—</span>'
+          : `📝 ${c.sol_texto} (${pc(c.sol_texto, c.q_emb)})<br>🎬 ${c.sol_video} (${pc(c.sol_video, c.q_emb)})`}</span>
+        <span class="nums">${c.vids} · ${dur(c.dur)}</span>
+        <span class="faixa">${faixa(c.v_ate, c.v_meio, c.v_novo, c.v_com_data)}${
+          c.vids ? `<small>${c.v_com_data} de ${c.vids} com data real</small>` : ""}</span>`;
+    };
+
+    const corpo = D.capitulos.map(c => {
+      const nome = `${c.num ? `<span class="pos">${esc(c.num)}</span>` : ""}${esc((c.nome || "").trim())}`;
+      const itens = c.itens || [];
+      const cab = `<span class="nm">${nome}<small>${c.aulas} itens</small></span>${celulas(c)}`;
+      if (!itens.length) return `<div class="lin cap sem">${cab}</div>`;
+      return `<details class="cap"><summary class="lin"><span class="seta"></span>${cab}</summary>` +
+        itens.map(it => `<div class="lin item"><span class="nm">${
+          it.num ? `<span class="pos">${esc(it.num)}</span>` : ""}${esc((it.nome || "").trim())
+        }</span>${celulas(it)}</div>`).join("") + `</details>`;
+    }).join("");
+
+    const tot = k => D.capitulos.reduce((s, c) => s + (c[k] || 0), 0);
+    const totQ = tot("q_emb") + tot("q_txt");
+    const totAlvo = banca ? D.capitulos.reduce((s, c) => s + (c.bancas[banca] || 0), 0) : null;
+    const kpis = [
+      [D.capitulos.length, "aulas"],
+      [fmt(totQ), "questões (emb. + texto)"],
+      banca ? [pc(totAlvo, totQ), "% banca-alvo"] : null,
+      [pc(tot("q_novo"), tot("q_com_ano")), `% questões ${ANO - 2}-${ANO}`],
+      [pc(tot("sol_texto"), tot("q_emb")), "embedadas c/ solução em texto"],
+      [pc(tot("sol_video"), tot("q_emb")), "embedadas c/ vídeo-solução"],
+      [fmt(tot("vids")) + " · " + dur(tot("dur")), "vídeos · tempo total"],
+      [pc(tot("v_novo"), tot("v_com_data")), `% vídeos gravados ${ANO - 2}-${ANO}`],
+    ].filter(Boolean).map(([n, l]) => `<div class="kpi"><b>${n}</b><span>${esc(l)}</span></div>`).join("");
+
+    const COLS = "minmax(230px,2.2fr) 78px 110px 150px 132px 148px 104px 132px";
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<title>Avaliação — ${esc(D.curso.trim())} — ${agora.toLocaleDateString("pt-BR")}</title>
+<style>
+  body{font:13px/1.45 "Segoe UI",system-ui,sans-serif; color:#0b0b0b; background:#fff;
+       max-width:1240px; margin:0 auto; padding:26px 22px}
+  header{border-bottom:3px solid #2a78d6; padding-bottom:12px; margin-bottom:14px}
+  header h1{font-size:19px; margin:0 0 4px}
+  header .meta{color:#52514e; font-size:12px}
+  .aviso{color:#a06b00; border:1px solid #a06b00; background:#fdf6e7; border-radius:8px;
+         padding:9px 13px; margin:12px 0; font-size:12.5px}
+  .kpis{display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 16px}
+  .kpi{border:1px solid #e3e2dd; border-radius:8px; padding:8px 13px}
+  .kpi b{display:block; font-size:18px; color:#2a78d6; font-variant-numeric:tabular-nums}
+  .kpi span{font-size:11px; color:#52514e}
+  .tblcab,.lin{display:grid; grid-template-columns:${COLS}; gap:10px; align-items:start}
+  .tblcab{font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#2a78d6;
+          font-weight:700; padding:8px 10px; border-bottom:1px solid #e3e2dd}
+  .lin{padding:9px 10px; border-bottom:1px solid #f0efec; position:relative}
+  summary.lin{cursor:pointer; list-style:none; background:#f7f7f5}
+  summary.lin::-webkit-details-marker{display:none}
+  .seta{position:absolute; margin-left:-14px; color:#8a897f}
+  .seta::before{content:"▸"}
+  details[open]>summary .seta::before{content:"▾"}
+  .lin.cap .nm,summary.lin .nm{font-weight:600}
+  .lin.item{padding-left:34px; color:#52514e; border-bottom:1px dashed #f0efec}
+  .nm{min-width:0; overflow-wrap:anywhere}
+  .nm small{display:block; color:#8a897f; font-weight:400; font-size:11px}
+  .nums{font-variant-numeric:tabular-nums; white-space:nowrap}
+  .nums small{display:block; color:#8a897f; font-size:11px; white-space:normal}
+  .pos{display:inline-block; min-width:2.2em; margin-right:7px; color:#8a897f;
+       font-variant-numeric:tabular-nums; border-right:1px solid #e3e2dd; padding-right:6px}
+  .barra-pct{display:flex; height:8px; border-radius:4px; overflow:hidden; margin-top:3px}
+  .faixa small{display:block; color:#8a897f; margin-top:2px}
+  .vaz{color:#8a897f}
+  small{font-size:11px}
+  footer{margin-top:20px; color:#8a897f; font-size:11px; text-align:center}
+  @media print{ body{padding:0} details{break-inside:avoid} }
+</style></head><body>
+<header>
+  <h1>📊 Avaliação — ${esc(D.curso.trim())}</h1>
+  ${D.autores ? `<div class="meta">${esc(D.autores)}</div>` : ""}
+  ${frescor ? `<div class="meta">${esc(frescor)}</div>` : ""}
+  <div class="meta">Gerado em ${agora.toLocaleDateString("pt-BR")} às
+    ${agora.toLocaleTimeString("pt-BR").slice(0, 5)}${
+    banca ? ` · banca-alvo: <b>${esc(banca)}</b>` : " · sem banca-alvo"}</div>
+</header>
+${payloadAntigo ? '<div class="aviso">⚠ Este snapshot é anterior à visão por item — recolha o concurso para ver a ordem do curso e abrir os itens.</div>' : ""}
+<div class="kpis">${kpis}</div>
+<div class="tblcab"><span>Aula (LDI)</span><span>Itens no MB</span><span>Questões</span>
+  <span>${banca ? "Banca-alvo" : "Bancas"}</span><span>% ano da prova ${esc(ROTULO)}</span>
+  <span>Soluções 📝 · 🎬</span><span>Vídeos qtd · tempo</span>
+  <span>% ano de gravação ${esc(ROTULO)}</span></div>
+${corpo}
+<footer>Gerado pelo Painel de Conteúdo LDI · uso interno · clique nos capítulos para abrir os itens</footer>
+</body></html>`;
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+    // data LOCAL (convenção do projeto — toISOString viraria o dia); reusa `agora` do topo
+    const dia = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+    a.download = "avaliacao_" + (D.curso || "disciplina").trim().slice(0, 40).replace(/\W+/g, "_") + "_" + dia + ".html";
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   carregarConcursos();

@@ -424,12 +424,36 @@ import, o worker precisa de `git pull` + `systemctl restart worker-coleta`.**
 - `sync_supabase.enviar()` não tem teste batendo em `requests.post` — o loteamento novo não
   está travado por teste. A lacuna já existia antes desta branch, mas é o caminho que publica
   para o time: vale um teste com `requests.post` mockado contando chamadas e tamanho de lote.
-- O `aria-label` novo do botão de expandir interpola o nome do capítulo dentro de um atributo
-  entre aspas duplas. Nome com `"` literal trunca o atributo e quebra o rótulo do leitor de
-  tela em silêncio. Escapar as aspas resolve.
 - **Numeração:** a tela mostra a **posição real** (selo cinza, derivada do `path`) separada do
   número escrito no título, que é o **rótulo do autor** — eles divergem em 70 de 97 capítulos
   numerados porque os rótulos envelheceram. Ver "13." na posição 11 é esperado e correto.
+
+**Relatório HTML compartilhável (30/07):** a `/avaliacao` ganhou **📄 HTML (compartilhar)** ao
+lado do CSV — baixa um arquivo **autossuficiente** (CSS inline, **zero `<script>`**, paleta clara
+fixa) com os capítulos em `<details>` recolhidos e os itens dentro. Serve para mandar a avaliação
+a quem não tem login; o CSV continua para quem vai cruzar em planilha. Cabeçalho registra o
+frescor do dado, a hora da geração e a banca-alvo ativa, então o arquivo continua auditável meses
+depois. Usa **CSS grid, não `<table>`** — `<details>`/`<summary>` não podem envolver `<tr>`.
+Consequência aceita: no Ctrl+P sai só o que estiver aberto (um "abrir tudo" exigiria JS, e o
+zero-JS é o que faz o anexo abrir em qualquer lugar). Spec:
+`docs\superpowers\specs\2026-07-30-relatorio-html-avaliacao-design.md`; plano:
+`docs\superpowers\plans\2026-07-30-relatorio-html-avaliacao.md`.
+**Worker do VPS não precisa de `git pull`** — a mudança fica em arquivos que só os *request
+handlers* leem, e a forma do payload não muda (afirmação feita seguindo a cadeia de imports, não
+os nomes dos arquivos).
+
+⚠ **Não verificado por ninguém: a prévia do Ctrl+P.** A extensão do navegador ficou instável na
+sessão e o screenshot nunca saiu. Há motivo aritmético para conferir antes de prometer PDF ao
+time: as 8 colunas do relatório somam **1.154px mínimos** (a primeira é `minmax(230px,…)`, as
+outras sete são px fixos e não encolhem), contra ~710px imprimíveis de um A4 retrato. O navegador
+deve reduzir para ~60% — corpo de 13px vira ~8px — ou cortar as últimas colunas. **Gerar um
+relatório, abrir o Ctrl+P e olhar.** Se sair miúdo demais, o conserto é um `@media print` com
+`COLS` reduzido ou `@page{size:A4 landscape}`. Vale conferir junto: um capítulo grande aberto com
+`break-inside:avoid` (pode empurrar e deixar meia página em branco) e a rolagem horizontal da
+tela numa janela estreita.
+
+*Deixado de propósito para depois:* o relatório não reproduz as cores da tela no "Itens no MB"
+(verde/âmbar) nem o `— (só em texto)` das soluções — decisão visual, não defeito.
 
 ---
 
