@@ -457,6 +457,31 @@ tela numa janela estreita.
 
 ---
 
+## 🎯 PRÓXIMO TRABALHO (planejado em 30/07, aprovado pelo Clovis)
+
+**Roadmap aprovado:** `docs\superpowers\specs\2026-07-30-exclusao-coletas-e-selecao-multipla-roadmap.md`
+Duas features, quebradas em 4 entregas, nesta ordem: **1a → 2a → 1b → 2b**.
+
+| # | Entrega | Estado |
+|---|---|---|
+| **1a** | Admin exclui uma coleta (lógica, sem VACUUM) | **próxima a fazer** |
+| 2a | Buscar termo → selecionar vários cursos → "coletar juntos" | planejada |
+| 1b | VACUUM + checagem de espaço | planejada |
+| 2b | "Coletar separados" + rótulos + selos de reincidência | planejada |
+
+**Comece pela 1a.** Ela precisa de spec + plano próprios antes de codar (ritual do projeto). O
+roadmap já traz o desenho fechado: modelagem do pedido, travas, sequência do worker e os 6 testes.
+
+**Os três fatos que mais importam para quem pegar isso:**
+1. O `conteudo.db` **vive no VPS** — a Vercel não alcança o disco. Toda exclusão local passa pelo
+   worker, via a fila `coleta_pedido` com `tipo='excluir'`.
+2. O SQLite **não tem FK nenhuma**: os 6 DELETEs vão numa transação só, com `extracoes` **por
+   último** (lixo visível é melhor que lixo invisível).
+3. `snapshot_atual` faz `distinct on (termo)` — é a armadilha que define a 2b: 30 coletas separadas
+   com o mesmo rótulo deixariam 29 invisíveis, em silêncio.
+
+---
+
 ## 🔑 Coisas que a próxima sessão PRECISA saber
 
 ### Cookies (dois sistemas, dois cookies diferentes)
