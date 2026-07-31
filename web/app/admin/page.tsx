@@ -38,6 +38,8 @@ const MENSAGENS: Record<string, (email?: string) => string> = {
   "exclusao-status-mudou": () => "⚠ O status do pedido mudou — recarregue a página.",
   "exclusao-retentada": () => "✅ Pedido de exclusão devolvido para a fila.",
   "exclusao-erro": () => "❌ Não foi possível concluir a exclusão — tente de novo.",
+  "exclusao-sem-data": () =>
+    "⛔ Esta coleta não tem data de início registrada, e sem ela não dá para confirmar qual extração local apagar. Não foi excluída.",
 };
 
 // Data local do projeto: pt-BR com fuso explícito (servidor do Vercel é UTC).
@@ -74,18 +76,23 @@ export default async function PaginaAdmin({
   // A fonte é a TABELA snapshot, não a view snapshot_atual: a view faz
   // `distinct on (termo)` e filtra pronto, escondendo justamente os candidatos
   // a lixo (os antigos e os incompletos).
-  const { data: snapshots } = await supabase
+  const { data: snapshots, error: erroSnapshots } = await supabase
     .from("snapshot")
     .select("id, termo, extracao_local, status, iniciada_em, resumo, pronto, sincronizado_em")
     .order("termo")
     .order("extracao_local", { ascending: false });
-  const { data: pedidos } = await supabase
+  const { data: pedidos, error: erroPedidos } = await supabase
     .from("coleta_pedido")
     .select("*")
     .eq("tipo", "excluir")
     .in("status", ["pendente", "rodando", "erro"])
     .order("criado_em", { ascending: false })
     .limit(50);
+  // Consulta que falha NÃO pode se disfarçar de "não há coletas" — a tela
+  // ficaria vazia e indistinguível do estado normal, sem pista nenhuma.
+  if (erroSnapshots) console.error("[admin] snapshots:", erroSnapshots.message);
+  if (erroPedidos) console.error("[admin] pedidos de exclusão:", erroPedidos.message);
+  const erroColetas = erroSnapshots?.message ?? erroPedidos?.message ?? null;
   const coletas = montarListaColetas(
     (snapshots ?? []) as SnapshotLinha[],
     (pedidos ?? []) as Pedido[]
@@ -187,7 +194,13 @@ export default async function PaginaAdmin({
         Excluir apaga o snapshot na web <strong>e</strong> a extração no conteudo.db
         do VPS. As pendências são preservadas.
       </p>
-      <ListaColetas coletas={coletas} />
+      {erroColetas ? (
+        <p style={{ color: "#c0392b", fontSize: 13 }}>
+          ❌ Não consegui ler as coletas: {erroColetas}
+        </p>
+      ) : (
+        <ListaColetas coletas={coletas} />
+      )}
 
       <CookieLdi statusCookie={statusCookie ?? null} voltar="/admin" />
     </main>

@@ -10,17 +10,28 @@ import {
 
 // 1. round-trip do alvo
 const alvo = montarAlvoExclusao({
-  termo: "BACEN", extracaoLocal: 37, snapshotId: 12, vacuum: false,
+  termo: "BACEN", extracaoLocal: 37, iniciadaEm: "2026-07-06T23:56:22+00:00",
+  snapshotId: 12, vacuum: false,
 });
-assert.equal(alvo, '{"termo":"BACEN","extracao_local":37,"snapshot_id":12,"vacuum":false}');
+assert.equal(alvo,
+  '{"termo":"BACEN","extracao_local":37,"iniciada_em":"2026-07-06T23:56:22+00:00",'
+  + '"snapshot_id":12,"vacuum":false}');
 assert.deepEqual(lerAlvoExclusao(alvo), {
-  termo: "BACEN", extracaoLocal: 37, snapshotId: 12, vacuum: false,
+  termo: "BACEN", extracaoLocal: 37, iniciadaEm: "2026-07-06T23:56:22+00:00",
+  snapshotId: 12, vacuum: false,
 });
+
+// 1b. a data VIAJA no alvo — é ela que desempata qual conteudo.db tem a
+// extração N (dois bancos publicam "BACEN #1" diferentes; visto em 31/07).
+assert.ok(alvo.includes('"iniciada_em"'));
 
 // 2. alvo ilegível não derruba a tela
 assert.equal(lerAlvoExclusao("BACEN"), null);
 assert.equal(lerAlvoExclusao('{"termo":"BACEN"}'), null);
 assert.equal(lerAlvoExclusao('{"extracao_local":37}'), null);
+// alvo do formato antigo (sem data) continua LEGÍVEL para a tela mostrar o
+// selo do pedido #16 — quem recusa é o worker, com mensagem explicando.
+assert.equal(lerAlvoExclusao('{"termo":"BACEN","extracao_local":2}')?.iniciadaEm, null);
 
 // 3. chave
 assert.equal(chaveColeta("BACEN", 37), "BACEN#37");
@@ -80,4 +91,4 @@ assert.equal(prf.blocos, 64838);
 assert.deepEqual(lista.map((c) => `${c.termo}#${c.extracaoLocal}`),
                  ["BACEN#37", "BACEN#33", "PRF#10"]);
 
-console.log("ok — 7 checagens");
+console.log("ok — 9 checagens");

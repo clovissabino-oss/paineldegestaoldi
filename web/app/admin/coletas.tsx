@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useState, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 import type { ColetaListada } from "../../lib/coleta";
 import { pedirExclusaoColeta, retentarExclusao } from "./actions";
 
@@ -29,6 +30,7 @@ function Confirmacao({ coleta, aoFechar }: { coleta: ColetaListada; aoFechar: ()
       <input type="hidden" name="termo" value={coleta.termo} />
       <input type="hidden" name="extracaoLocal" value={coleta.extracaoLocal} />
       <input type="hidden" name="snapshotId" value={coleta.snapshotId} />
+      <input type="hidden" name="iniciadaEm" value={coleta.iniciadaEm ?? ""} />
 
       <p style={{ margin: "0 0 8px", fontWeight: 600 }}>
         Excluir a coleta #{coleta.extracaoLocal} de {coleta.termo}
@@ -102,8 +104,24 @@ function EstadoDoPedido({ coleta }: { coleta: ColetaListada }) {
   );
 }
 
+const INTERVALO_REFRESH_MS = 5000;
+
 export function ListaColetas({ coletas }: { coletas: ColetaListada[] }) {
   const [abertaEm, setAbertaEm] = useState<string | null>(null);
+  const router = useRouter();
+
+  // A /admin é server component: sem isto o selo congela no estado do
+  // carregamento da página. Foi o que aconteceu em 31/07 — o pedido já estava
+  // em `erro` havia minutos e a tela ainda dizia "exclusão pedida".
+  // Só recarrega enquanto há pedido em voo; parado, não bate no servidor.
+  const emVoo = coletas.some(
+    (c) => c.pedido?.status === "pendente" || c.pedido?.status === "rodando"
+  );
+  useEffect(() => {
+    if (!emVoo) return;
+    const intervalo = setInterval(() => router.refresh(), INTERVALO_REFRESH_MS);
+    return () => clearInterval(intervalo);
+  }, [emVoo, router]);
 
   if (coletas.length === 0) {
     return <p style={{ color: "#8a897f", fontSize: 13 }}>Nenhuma coleta publicada ainda.</p>;
@@ -126,8 +144,10 @@ export function ListaColetas({ coletas }: { coletas: ColetaListada[] }) {
         <tbody>
           {coletas.map((c) => {
             const chave = `${c.termo}#${c.extracaoLocal}`;
+            const aberta = abertaEm === chave;
             return (
-              <tr key={chave}>
+              <Fragment key={chave}>
+              <tr>
                 <td style={celula}>
                   {c.termo}
                   {!c.pronto && (
@@ -144,10 +164,11 @@ export function ListaColetas({ coletas }: { coletas: ColetaListada[] }) {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => setAbertaEm(abertaEm === chave ? null : chave)}
+                      onClick={() => setAbertaEm(aberta ? null : chave)}
                       style={{
                         font: "inherit", fontSize: 12, cursor: "pointer",
-                        background: "transparent", color: "#c0392b",
+                        background: aberta ? "#c0392b" : "transparent",
+                        color: aberta ? "#fff" : "#c0392b",
                         border: "1px solid #e0b4ae", borderRadius: 6, padding: "2px 8px",
                       }}
                     >
@@ -156,20 +177,21 @@ export function ListaColetas({ coletas }: { coletas: ColetaListada[] }) {
                   )}
                 </td>
               </tr>
+              {/* A confirmação abre NA PRÓPRIA LINHA. Antes ela ficava depois da
+                  tabela inteira: quem clicava numa linha do meio via o formulário
+                  aparecer fora da tela e concluía que o botão não funcionava. */}
+              {aberta && (
+                <tr>
+                  <td colSpan={6} style={{ padding: 0 }}>
+                    <Confirmacao coleta={c} aoFechar={() => setAbertaEm(null)} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             );
           })}
         </tbody>
       </table>
-
-      {coletas
-        .filter((c) => `${c.termo}#${c.extracaoLocal}` === abertaEm)
-        .map((c) => (
-          <Confirmacao
-            key={`${c.termo}#${c.extracaoLocal}`}
-            coleta={c}
-            aoFechar={() => setAbertaEm(null)}
-          />
-        ))}
 
       <p style={{ color: "#8a897f", fontSize: 12, marginTop: 10 }}>
         Esta lista mostra o que está publicado na web. Coletas que ficaram só no
