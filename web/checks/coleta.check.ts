@@ -41,6 +41,13 @@ const indice = indexarPedidosExclusao([
 assert.equal(indice.size, 1);
 assert.equal(indice.get("BACEN#37")?.id, 3);
 
+// 4b. pedido cancelado/concluído NÃO deixa selo — a linha volta ao botão
+// [excluir]. Sem este filtro, um cancelado renderizaria "⛔ falhou".
+assert.equal(indexarPedidosExclusao([
+  pedido(5, "cancelada", '{"termo":"PRF","extracao_local":10}'),
+  pedido(6, "concluida", '{"termo":"PRF","extracao_local":10}'),
+]).size, 0);
+
 // 5. montarListaColetas: mais recente, único e destino
 const snap = (id: number, termo: string, extracaoLocal: number): SnapshotLinha => ({
   id, termo, extracao_local: extracaoLocal, status: "completa",
@@ -73,4 +80,4 @@ assert.equal(prf.blocos, 64838);
 assert.deepEqual(lista.map((c) => `${c.termo}#${c.extracaoLocal}`),
                  ["BACEN#37", "BACEN#33", "PRF#10"]);
 
-console.log("ok — 6 checagens");
+console.log("ok — 7 checagens");

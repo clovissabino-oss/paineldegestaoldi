@@ -161,10 +161,16 @@ export function chaveColeta(termo: string, extracaoLocal: number): string {
   return `${termo}#${extracaoLocal}`;
 }
 
+// Só os pedidos que ainda dizem algo sobre o alvo. `concluida` some junto com o
+// snapshot; `cancelada` volta a linha ao botão [excluir]. Sem este filtro, um
+// pedido cancelado renderizaria como "⛔ falhou" — erro que ninguém cometeu.
+const EXCLUSAO_VISIVEL: StatusPedido[] = ["pendente", "rodando", "erro"];
+
 export function indexarPedidosExclusao(pedidos: Pedido[]): Map<string, Pedido> {
   const mapa = new Map<string, Pedido>();
   for (const p of pedidos) {
     if (p.tipo !== "excluir") continue;
+    if (!EXCLUSAO_VISIVEL.includes(p.status)) continue;
     const alvo = lerAlvoExclusao(p.alvo);
     if (!alvo) continue;
     const chave = chaveColeta(alvo.termo, alvo.extracaoLocal);

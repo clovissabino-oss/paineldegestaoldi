@@ -83,6 +83,7 @@ export default async function PaginaAdmin({
     .from("coleta_pedido")
     .select("*")
     .eq("tipo", "excluir")
+    .in("status", ["pendente", "rodando", "erro"])
     .order("criado_em", { ascending: false })
     .limit(50);
   const coletas = montarListaColetas(
