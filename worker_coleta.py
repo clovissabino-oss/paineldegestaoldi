@@ -21,8 +21,10 @@ from datetime import datetime, timezone
 import requests
 
 import extrator_ldi
+import banco_conteudo
 import coletor_ldi
 import cookie_status
+import exclusao_coleta
 import sync_supabase
 
 try:
@@ -41,11 +43,16 @@ _probe = {"cookie": None, "resultado": None, "ciclo": 0}
 
 
 def pedido_para_coleta(row):
-    """Deriva (termo, ids) de uma linha da fila. termo=rótulo quando tipo=ids."""
+    """Deriva (termo, ids) de uma linha da fila. termo=rótulo quando tipo=ids.
+
+    Só trata os tipos de COLETA — 'excluir' é roteado antes, em main(), e
+    qualquer tipo novo (entregas futuras) falha limpo em vez de virar busca."""
     if row["tipo"] == "ids":
         if not row.get("rotulo"):
             raise extrator_ldi.falha("pedido tipo=ids sem rótulo.")
         return row["rotulo"], coletor_ldi.extrair_ids(row["alvo"])
+    if row["tipo"] != "termo":
+        raise extrator_ldi.falha(f"tipo de pedido desconhecido: {row['tipo']!r}")
     return row["alvo"], None
 
 
@@ -188,6 +195,54 @@ def processar_pedido(rest, key, row, cfg):
     return "concluida"
 
 
+def _apagar_snapshot(rest, key, termo, extracao_local):
+    """DELETE do snapshot no Supabase. avaliacao_curso e pendencia_resumo somem
+    junto por `on delete cascade` (supabase/schema.sql:18,27)."""
+    requests.delete(f"{rest}/snapshot", headers=sync_supabase._headers(key),
+                    params={"termo": f"eq.{termo}",
+                            "extracao_local": f"eq.{extracao_local}"},
+                    timeout=60).raise_for_status()
+
+
+def processar_exclusao(rest, key, row):
+    """Apaga uma coleta nas DUAS camadas: snapshot no Supabase e extração no
+    conteudo.db. Devolve o status final.
+
+    NÃO prova o cookie — diferença deliberada de processar_pedido: a exclusão
+    não fala com o LDI, e um cookie vencido não pode bloquear uma limpeza de
+    disco. Cada passo é idempotente (ver docstring de exclusao_coleta)."""
+    pid = row["id"]
+    _patch_pedido(rest, key, pid, {"status": "rodando",
+                                   "iniciado_em": datetime.now(timezone.utc).isoformat()})
+    try:
+        termo, extracao_local, vacuum = exclusao_coleta.ler_pedido_exclusao(row)
+        con = banco_conteudo.abrir(BANCO)
+        try:
+            ext = exclusao_coleta.conferir_extracao(con, extracao_local, termo)
+            mais_recente = bool(ext) and exclusao_coleta.era_a_mais_recente(con, extracao_local)
+            pendencias = exclusao_coleta.contar_pendencias(con, extracao_local) if ext else 0
+            # Supabase PRIMEIRO. Morrer aqui deixa "sumiu da web mas ainda ocupa
+            # disco" — retentável e inofensivo. A ordem inversa deixaria a web
+            # mostrando uma coleta que não existe mais na origem.
+            _apagar_snapshot(rest, key, termo, extracao_local)
+            apagadas = exclusao_coleta.apagar_extracao(con, extracao_local) if ext else {}
+        finally:
+            con.close()
+    except SystemExit as e:   # extrator_ldi.falha (alvo ilegível, termo divergente)
+        _patch_pedido(rest, key, pid, {"status": "erro", "mensagem": str(e)[:400]})
+        return "erro"
+    except Exception as e:
+        _patch_pedido(rest, key, pid, {"status": "erro", "mensagem": str(e)[:400]})
+        return "erro"
+
+    _patch_pedido(rest, key, pid, {
+        "status": "concluida", "extracao_id": extracao_local,
+        "mensagem": exclusao_coleta.relatorio(termo, extracao_local, apagadas,
+                                              pendencias, mais_recente, vacuum)[:400],
+        "concluido_em": datetime.now(timezone.utc).isoformat()})
+    return "concluida"
+
+
 def main():
     cfg = extrator_ldi.carregar_config()
     rest, key = _rest()
@@ -214,7 +269,10 @@ def main():
             if fila:
                 row = fila[0]
                 print(f"[worker] pedido #{row['id']} ({row['tipo']}: {row['alvo'][:40]})")
-                status = processar_pedido(rest, key, row, cfg)
+                if row["tipo"] == "excluir":
+                    status = processar_exclusao(rest, key, row)
+                else:
+                    status = processar_pedido(rest, key, row, cfg)
                 print(f"[worker] pedido #{row['id']} -> {status}")
                 continue  # busca o próximo já
         except Exception as e:

@@ -32,6 +32,7 @@ py regras_qualidade.py [--extracao N]              # motor de pendências avulso
 py painel.py [--sem-navegador]                     # painel em http://127.0.0.1:8766
 #   / = inventário · /avaliacao = planilha de avaliação por disciplina (CSV/print)
 py -m unittest discover -s tests                   # testes (parse, banco, coletor, regras, painel)
+cd web; node --experimental-strip-types checks/coleta.check.ts   # checagem das puras do TS
 
 # Publicação web (Supabase + Vercel):
 py sync_supabase.py [--termo X]                    # publica o snapshot mais recente no Supabase
@@ -133,6 +134,16 @@ retentar (`erro`/`aguardando_cookie`→`pendente`), cancelar em andamento
 leitura, o valor nunca chega ao cliente) e o estado derivado (`cookie_status`, publicado
 pelo worker) aparece via `/api/cookie-status` como **banner** (vermelho vencido / amarelo
 ≤3 dias) nas telas React (`BannerCookie.tsx`) e nas cópias vanilla de `web\telas\`.
+
+**Exclusão de coleta (entrega 1a)**: a mesma fila leva `tipo='excluir'`, com o **alvo em JSON**
+(`{"termo","extracao_local","snapshot_id","vacuum"}`) — nunca legível, para que um worker
+desatualizado falhe limpo em vez de recoletar o termo que se pediu para apagar. A lista das
+coletas publicadas fica na `/admin` (só admin; fonte = tabela `snapshot`, não a view), e a
+confirmação **exige digitar o termo**. O worker (`processar_exclusao` + `exclusao_coleta.py`)
+apaga o **Supabase primeiro** e depois os 6 DELETEs numa transação com **`extracoes` por
+último** (lixo visível é melhor que invisível); `pendencias`/`acionamentos` são preservadas e
+só reportadas. Não prova o cookie — exclusão não fala com o LDI. Migração:
+`supabase\schema_coleta_exclusao.sql`, aplicada **antes** do `git pull` do worker.
 
 - **Supabase**: projeto na conta **Estratégia** (ref `zpjsoidxhfwziprjxpqx`) — NUNCA o
   Supabase pessoal do Clovis. Credenciais: `supabase.json` na raiz (service_role, só para o

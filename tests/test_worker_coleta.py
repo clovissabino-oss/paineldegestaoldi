@@ -276,5 +276,78 @@ class TestProbeDeCookie(unittest.TestCase):
         self.assertIs(veredito, False)
 
 
+class TestRoteamentoExclusao(unittest.TestCase):
+    """tipo='excluir' NÃO pode chamar o coletor nem provar o cookie — a exclusão
+    não fala com o LDI, e um cookie vencido não pode bloquear limpeza de disco."""
+
+    def test_tipo_desconhecido_falha(self):
+        with self.assertRaises(SystemExit):
+            worker_coleta.pedido_para_coleta(
+                {"tipo": "xpto", "alvo": "qualquer", "rotulo": None})
+
+    def test_excluir_nao_passa_por_pedido_para_coleta(self):
+        with self.assertRaises(SystemExit):
+            worker_coleta.pedido_para_coleta(
+                {"tipo": "excluir", "alvo": '{"termo":"BACEN"}', "rotulo": None})
+
+    @patch("worker_coleta.exclusao_coleta.relatorio", return_value="relatório")
+    @patch("worker_coleta.exclusao_coleta.apagar_extracao")
+    @patch("worker_coleta.exclusao_coleta.contar_pendencias", return_value=0)
+    @patch("worker_coleta.exclusao_coleta.era_a_mais_recente", return_value=False)
+    @patch("worker_coleta.exclusao_coleta.conferir_extracao", return_value={"id": 7})
+    @patch("worker_coleta._apagar_snapshot")
+    @patch("worker_coleta.banco_conteudo.abrir")
+    @patch("worker_coleta.cookie_status.probar_cookie")
+    @patch("worker_coleta.coletor_ldi.coletar")
+    @patch("worker_coleta._patch_pedido")
+    def test_exclusao_nao_coleta_nem_prova_cookie(
+        self, mock_patch, mock_coletar, mock_probar, mock_abrir, mock_del_snap,
+        mock_conferir, mock_recente, mock_pend, mock_apagar, mock_relatorio
+    ):
+        # Registra a ORDEM real das duas camadas: Supabase ANTES do SQLite.
+        # Morrer no meio deixa "sumiu da web mas ainda ocupa disco" (retentável);
+        # a ordem inversa deixaria a web mostrando coleta que não existe mais.
+        ordem = []
+        mock_del_snap.side_effect = lambda *a, **k: ordem.append("supabase")
+        mock_apagar.side_effect = lambda *a, **k: (ordem.append("sqlite")
+                                                   or {"blocos": 3})
+
+        row = {"id": 60, "tipo": "excluir", "rotulo": None,
+               "alvo": '{"termo":"BACEN","extracao_local":7,"snapshot_id":12,"vacuum":false}'}
+        status = worker_coleta.processar_exclusao("http://mock", "k", row)
+
+        self.assertEqual(status, "concluida")
+        mock_coletar.assert_not_called()
+        mock_probar.assert_not_called()
+        mock_del_snap.assert_called_once_with("http://mock", "k", "BACEN", 7)
+        self.assertEqual(ordem, ["supabase", "sqlite"])
+
+    @patch("worker_coleta.banco_conteudo.abrir")
+    @patch("worker_coleta._patch_pedido")
+    def test_alvo_ilegivel_vira_erro(self, mock_patch, mock_abrir):
+        row = {"id": 61, "tipo": "excluir", "alvo": "BACEN", "rotulo": None}
+        self.assertEqual(
+            worker_coleta.processar_exclusao("http://mock", "k", row), "erro")
+        erro = [c for c in mock_patch.call_args_list
+                if c[0][3].get("status") == "erro"]
+        self.assertTrue(erro)
+
+    @patch("worker_coleta.exclusao_coleta.apagar_extracao")
+    @patch("worker_coleta._apagar_snapshot")
+    @patch("worker_coleta.exclusao_coleta.conferir_extracao",
+           side_effect=SystemExit("[ERRO] termo divergente"))
+    @patch("worker_coleta.banco_conteudo.abrir")
+    @patch("worker_coleta._patch_pedido")
+    def test_termo_divergente_nao_apaga_nada(
+        self, mock_patch, mock_abrir, mock_conferir, mock_del_snap, mock_apagar
+    ):
+        row = {"id": 62, "tipo": "excluir", "rotulo": None,
+               "alvo": '{"termo":"PRF","extracao_local":7}'}
+        self.assertEqual(
+            worker_coleta.processar_exclusao("http://mock", "k", row), "erro")
+        mock_del_snap.assert_not_called()
+        mock_apagar.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
