@@ -7,6 +7,8 @@ import { FormPapel } from "./form-papel";
 import { BannerCookie } from "../../components/BannerCookie";
 import { CookieLdi } from "../../components/CookieLdi";
 import type { StatusCookie } from "../../lib/ldi";
+import { montarListaColetas, type SnapshotLinha, type Pedido } from "../../lib/coleta";
+import { ListaColetas } from "./coletas";
 
 export const dynamic = "force-dynamic";
 // o probe do cookie na action pode levar ~6s — folga na função serverless
@@ -28,6 +30,14 @@ const MENSAGENS: Record<string, (email?: string) => string> = {
     "⛔ O LDI recusou esse cookie (sessão inválida) — nada foi salvo. Copie o __Secure-SID de novo (F12 → Application → Cookies).",
   "cookie-salvo-sem-validar": () =>
     "⚠ Cookie salvo, mas não consegui validar contra o LDI agora — o worker confirma em instantes (veja o status).",
+  "exclusao-enfileirada": () =>
+    "✅ Exclusão enfileirada — o worker executa em até 20 segundos.",
+  "exclusao-repetida": () => "⚠ Já existe um pedido de exclusão para essa coleta.",
+  "exclusao-em-uso": () => "⛔ Essa extração está sendo escrita por uma coleta em andamento.",
+  "exclusao-confirmacao": () => "⚠ O termo digitado não confere — nada foi excluído.",
+  "exclusao-status-mudou": () => "⚠ O status do pedido mudou — recarregue a página.",
+  "exclusao-retentada": () => "✅ Pedido de exclusão devolvido para a fila.",
+  "exclusao-erro": () => "❌ Não foi possível concluir a exclusão — tente de novo.",
 };
 
 // Data local do projeto: pt-BR com fuso explícito (servidor do Vercel é UTC).
@@ -60,6 +70,25 @@ export default async function PaginaAdmin({
     .select("*")
     .eq("id", 1)
     .maybeSingle<StatusCookie>();
+
+  // A fonte é a TABELA snapshot, não a view snapshot_atual: a view faz
+  // `distinct on (termo)` e filtra pronto, escondendo justamente os candidatos
+  // a lixo (os antigos e os incompletos).
+  const { data: snapshots } = await supabase
+    .from("snapshot")
+    .select("id, termo, extracao_local, status, iniciada_em, resumo, pronto, sincronizado_em")
+    .order("termo")
+    .order("extracao_local", { ascending: false });
+  const { data: pedidos } = await supabase
+    .from("coleta_pedido")
+    .select("*")
+    .eq("tipo", "excluir")
+    .order("criado_em", { ascending: false })
+    .limit(50);
+  const coletas = montarListaColetas(
+    (snapshots ?? []) as SnapshotLinha[],
+    (pedidos ?? []) as Pedido[]
+  );
 
   return (
     <main
@@ -149,6 +178,15 @@ export default async function PaginaAdmin({
           ))}
         </tbody>
       </table>
+
+      <h2 style={{ fontSize: 17, fontWeight: 650, margin: "28px 0 4px" }}>
+        Coletas publicadas
+      </h2>
+      <p style={{ color: "#52514e", fontSize: 13, margin: "0 0 12px" }}>
+        Excluir apaga o snapshot na web <strong>e</strong> a extração no conteudo.db
+        do VPS. As pendências são preservadas.
+      </p>
+      <ListaColetas coletas={coletas} />
 
       <CookieLdi statusCookie={statusCookie ?? null} voltar="/admin" />
     </main>

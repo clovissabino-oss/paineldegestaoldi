@@ -4,6 +4,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 // Import só de tipos — apagado no build, nenhum código server-only vai
 // pro bundle do cliente (ver nota no brief da Task 5).
 import type { Pedido, StatusPedido } from "../../lib/coleta";
+import { lerAlvoExclusao } from "../../lib/coleta";
 import { cancelar, cancelarEmAndamento, retentar } from "./actions";
 
 const INTERVALO_POLLING_MS = 5000;
@@ -39,6 +40,13 @@ const dataLocal = (iso: string | null) =>
     : "—";
 
 const celula: CSSProperties = { padding: "8px 10px", borderBottom: "1px solid #e3e2dd" };
+
+// Sem isto a coluna "Rótulo / alvo" despeja o JSON cru do pedido de exclusão.
+function descreverAlvo(p: Pedido): string {
+  if (p.tipo !== "excluir") return p.alvo;
+  const alvo = lerAlvoExclusao(p.alvo);
+  return alvo ? `excluir a coleta #${alvo.extracaoLocal} de ${alvo.termo}` : p.alvo;
+}
 
 function Selo({ status }: { status: StatusPedido }) {
   const { bg, cor } = CORES_STATUS[status];
@@ -141,7 +149,7 @@ export function FilaColeta({
                 </div>
               )}
             </td>
-            <td style={{ ...celula, maxWidth: 260 }} title={p.alvo}>
+            <td style={{ ...celula, maxWidth: 260 }} title={descreverAlvo(p)}>
               {p.rotulo ? <strong>{p.rotulo}</strong> : <span style={{ color: "#8a897f" }}>({p.tipo})</span>}
               <div
                 style={{
@@ -149,7 +157,7 @@ export function FilaColeta({
                   textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}
               >
-                {p.alvo}
+                {descreverAlvo(p)}
               </div>
             </td>
             <td style={celula}>{p.progresso ?? "—"}</td>
