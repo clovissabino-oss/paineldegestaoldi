@@ -6,6 +6,10 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // checks/*.check.ts roda no Node com --experimental-strip-types, que exige a
+    // extensão .ts explícita no import. Só é válido com noEmit; o código do app
+    // não usa. Sem isto, os checks ficariam fora da checagem de tipos.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

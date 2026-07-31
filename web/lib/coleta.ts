@@ -38,9 +38,11 @@ export type StatusPedido =
   | "erro"
   | "aguardando_cookie";
 
+export type TipoPedido = "termo" | "ids" | "excluir";
+
 export interface Pedido {
   id: number;
-  tipo: "termo" | "ids";
+  tipo: TipoPedido;
   alvo: string;
   rotulo: string | null;
   status: StatusPedido;
@@ -58,7 +60,7 @@ export interface Pedido {
 export async function enfileirar(
   admin: SupabaseClient,
   pedido: {
-    tipo: "termo" | "ids";
+    tipo: TipoPedido;
     alvo: string;
     rotulo: string | null;
     pedido_por: string;
@@ -112,4 +114,133 @@ export async function mudarStatus(
     .select("id");
   if (error) throw new Error(`mudar status do pedido ${id}: ${error.message}`);
   return (data ?? []).length > 0;
+}
+
+// O alvo de um pedido de exclusão é um JSON, nunca um termo legível — se o
+// worker ANTIGO (sem git pull) pegar o pedido, ele trata o JSON como
+// search_term, não acha curso nenhum e falha limpo. Um alvo legível faria o
+// worker antigo RECOLETAR o termo que se pediu para apagar.
+export interface AlvoExclusao {
+  termo: string;
+  extracaoLocal: number;
+  snapshotId: number | null;
+  vacuum: boolean;
+}
+
+export function montarAlvoExclusao(a: AlvoExclusao): string {
+  return JSON.stringify({
+    termo: a.termo,
+    extracao_local: a.extracaoLocal,
+    snapshot_id: a.snapshotId,
+    vacuum: a.vacuum,
+  });
+}
+
+// null quando o alvo não é um pedido de exclusão legível — a tela ignora a
+// linha em vez de quebrar (um JSON malformado não pode derrubar a /admin).
+export function lerAlvoExclusao(alvo: string): AlvoExclusao | null {
+  try {
+    const o = JSON.parse(alvo) as Record<string, unknown>;
+    const termo = typeof o.termo === "string" ? o.termo.trim() : "";
+    const extracaoLocal = typeof o.extracao_local === "number" ? o.extracao_local : null;
+    if (!termo || extracaoLocal === null) return null;
+    return {
+      termo,
+      extracaoLocal,
+      snapshotId: typeof o.snapshot_id === "number" ? o.snapshot_id : null,
+      vacuum: o.vacuum === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Chave natural da coleta: (termo, extracao_local). NÃO o snapshot_id — ele
+// muda se o snapshot for republicado entre o pedido e a execução do worker.
+export function chaveColeta(termo: string, extracaoLocal: number): string {
+  return `${termo}#${extracaoLocal}`;
+}
+
+export function indexarPedidosExclusao(pedidos: Pedido[]): Map<string, Pedido> {
+  const mapa = new Map<string, Pedido>();
+  for (const p of pedidos) {
+    if (p.tipo !== "excluir") continue;
+    const alvo = lerAlvoExclusao(p.alvo);
+    if (!alvo) continue;
+    const chave = chaveColeta(alvo.termo, alvo.extracaoLocal);
+    // a lista vem do mais novo para o mais velho: o primeiro é o que vale
+    if (!mapa.has(chave)) mapa.set(chave, p);
+  }
+  return mapa;
+}
+
+// Shape cru da tabela `snapshot` (supabase/schema.sql). `resumo` é o
+// painel.dados_do_snapshot() serializado pelo sync.
+export interface SnapshotLinha {
+  id: number;
+  termo: string;
+  extracao_local: number;
+  status: string | null;
+  iniciada_em: string | null;
+  resumo: { kpis?: { cursos_total?: number; blocos?: number } } | null;
+  pronto: boolean;
+  sincronizado_em: string;
+}
+
+export interface ColetaListada {
+  termo: string;
+  extracaoLocal: number;
+  snapshotId: number;
+  pronto: boolean;
+  iniciadaEm: string | null;
+  sincronizadoEm: string;
+  cursos: number | null;
+  blocos: number | null;
+  ehMaisRecenteDoTermo: boolean;
+  ehUnicoDoTermo: boolean;
+  // para onde a web cai se esta for apagada (só quando é a mais recente)
+  destino: { extracaoLocal: number; iniciadaEm: string | null } | null;
+  pedido: Pedido | null;
+}
+
+// Deriva tudo que a tela precisa saber ANTES de mostrar o botão. Os dois casos
+// de risco (único do termo / mais recente do termo) saem daqui, não da UI:
+// snapshot_atual faz `distinct on (termo) ... order by extracao_local desc`,
+// então apagar a mais recente troca o que o time vê, em silêncio.
+export function montarListaColetas(
+  snapshots: SnapshotLinha[],
+  pedidos: Pedido[]
+): ColetaListada[] {
+  const indice = indexarPedidosExclusao(pedidos);
+  const porTermo = new Map<string, SnapshotLinha[]>();
+  for (const s of snapshots) {
+    porTermo.set(s.termo, [...(porTermo.get(s.termo) ?? []), s]);
+  }
+
+  const lista: ColetaListada[] = [];
+  for (const termo of [...porTermo.keys()].sort((a, b) => a.localeCompare(b, "pt-BR"))) {
+    const doTermo = [...(porTermo.get(termo) ?? [])].sort(
+      (a, b) => b.extracao_local - a.extracao_local
+    );
+    doTermo.forEach((s, i) => {
+      const anterior = i === 0 ? doTermo[1] : undefined;
+      lista.push({
+        termo: s.termo,
+        extracaoLocal: s.extracao_local,
+        snapshotId: s.id,
+        pronto: s.pronto,
+        iniciadaEm: s.iniciada_em,
+        sincronizadoEm: s.sincronizado_em,
+        cursos: s.resumo?.kpis?.cursos_total ?? null,
+        blocos: s.resumo?.kpis?.blocos ?? null,
+        ehMaisRecenteDoTermo: i === 0,
+        ehUnicoDoTermo: doTermo.length === 1,
+        destino: anterior
+          ? { extracaoLocal: anterior.extracao_local, iniciadaEm: anterior.iniciada_em }
+          : null,
+        pedido: indice.get(chaveColeta(s.termo, s.extracao_local)) ?? null,
+      });
+    });
+  }
+  return lista;
 }
