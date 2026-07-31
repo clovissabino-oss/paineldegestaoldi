@@ -36,12 +36,33 @@ TABELAS_POVOADAS = ("blocos", "aulas_coletadas", "aulas", "capitulos", "cursos",
 class TestLerPedidoExclusao(unittest.TestCase):
     def test_alvo_completo(self):
         row = {"tipo": "excluir",
-               "alvo": '{"termo":"BACEN","extracao_local":37,"snapshot_id":12,"vacuum":false}'}
-        self.assertEqual(exclusao_coleta.ler_pedido_exclusao(row), ("BACEN", 37, False))
+               "alvo": '{"termo":"BACEN","extracao_local":37,"snapshot_id":12,'
+                       '"iniciada_em":"2026-07-06T23:56:22+00:00","vacuum":false}'}
+        self.assertEqual(exclusao_coleta.ler_pedido_exclusao(row),
+                         ("BACEN", 37, "2026-07-06T23:56:22+00:00", False))
 
     def test_vacuum_ausente_vira_false(self):
-        row = {"tipo": "excluir", "alvo": '{"termo":"PRF","extracao_local":3}'}
-        self.assertEqual(exclusao_coleta.ler_pedido_exclusao(row), ("PRF", 3, False))
+        row = {"tipo": "excluir",
+               "alvo": '{"termo":"PRF","extracao_local":3,'
+                       '"iniciada_em":"2026-07-20T16:07:00"}'}
+        self.assertFalse(exclusao_coleta.ler_pedido_exclusao(row).vacuum)
+
+    def test_sem_iniciada_em_recusa(self):
+        """Alvo do formato antigo (pedido #16 de 31/07). Sem a data não dá para
+        saber de QUAL banco é a extração N — recusar é a única resposta segura."""
+        row = {"tipo": "excluir",
+               "alvo": '{"termo":"BACEN","extracao_local":2,"vacuum":false}'}
+        with self.assertRaises(SystemExit) as ctx:
+            exclusao_coleta.ler_pedido_exclusao(row)
+        self.assertIn("iniciada_em", str(ctx.exception))
+
+    def test_mensagem_do_erro_chega_na_excecao(self):
+        """extrator_ldi.falha levanta SystemExit(1) e a fila mostra "1". Aqui a
+        mensagem tem de VIAJAR na exceção, senão o admin lê "1" na tela."""
+        with self.assertRaises(SystemExit) as ctx:
+            exclusao_coleta.ler_pedido_exclusao({"tipo": "excluir", "alvo": "BACEN"})
+        self.assertIn("alvo ilegível", str(ctx.exception))
+        self.assertNotEqual(str(ctx.exception), "1")
 
     def test_alvo_que_nao_e_json_falha(self):
         # é o alvo que um worker NOVO receberia de uma web velha: falha limpa
@@ -133,14 +154,40 @@ class TestApagarExtracao(unittest.TestCase):
         self.assertGreater(primeira["blocos"], 0)
         self.assertEqual(segunda, dict.fromkeys(TABELAS_POVOADAS, 0))
 
+    def _data(self, eid):
+        return self.con.execute("SELECT iniciada_em FROM extracoes WHERE id=?",
+                                (eid,)).fetchone()[0]
+
     def test_conferir_extracao(self):
         eid = self._nova()
-        self.assertEqual(exclusao_coleta.conferir_extracao(self.con, eid, "BACEN")["id"], eid)
+        data = self._data(eid)
+        self.assertEqual(
+            exclusao_coleta.conferir_extracao(self.con, eid, "BACEN", data)["id"], eid)
         # extração inexistente devolve None (idempotência: o snapshot pode ter sobrado)
-        self.assertIsNone(exclusao_coleta.conferir_extracao(self.con, 9999, "BACEN"))
+        self.assertIsNone(
+            exclusao_coleta.conferir_extracao(self.con, 9999, "BACEN", data))
         # termo divergente nunca apaga o alvo errado
         with self.assertRaises(SystemExit):
-            exclusao_coleta.conferir_extracao(self.con, eid, "PRF")
+            exclusao_coleta.conferir_extracao(self.con, eid, "PRF", data)
+
+    def test_data_do_supabase_com_fuso_casa_com_a_naive_do_sqlite(self):
+        """O SQLite guarda '2026-07-06T23:56:22'; o Supabase devolve
+        '2026-07-06T23:56:22+00:00'. Têm de casar, senão nada seria apagável."""
+        eid = self._nova()
+        self.assertIsNotNone(exclusao_coleta.conferir_extracao(
+            self.con, eid, "BACEN", self._data(eid)[:19] + "+00:00"))
+
+    def test_mesmo_numero_e_mesmo_termo_mas_outra_origem_recusa(self):
+        """O caso REAL de 31/07: o Supabase tinha BACEN extracao_local=1 de
+        30/07, e a extração 1 deste banco era outro BACEN, de 06/07. Só o termo
+        não desempata — a data desempata, e a recusa evita apagar a errada."""
+        eid = self._nova()
+        antes = self._contagens(eid)
+        with self.assertRaises(SystemExit) as ctx:
+            exclusao_coleta.conferir_extracao(self.con, eid, "BACEN",
+                                              "2030-01-01T00:00:00+00:00")
+        self.assertIn("coletas diferentes com o mesmo número", str(ctx.exception))
+        self.assertEqual(self._contagens(eid), antes)  # nada tocado
 
     def test_era_a_mais_recente_e_contar_pendencias(self):
         eid1 = self._nova()

@@ -313,7 +313,8 @@ class TestRoteamentoExclusao(unittest.TestCase):
                                                    or {"blocos": 3})
 
         row = {"id": 60, "tipo": "excluir", "rotulo": None,
-               "alvo": '{"termo":"BACEN","extracao_local":7,"snapshot_id":12,"vacuum":false}'}
+               "alvo": '{"termo":"BACEN","extracao_local":7,"snapshot_id":12,'
+                       '"iniciada_em":"2026-07-06T23:56:22+00:00","vacuum":false}'}
         status = worker_coleta.processar_exclusao("http://mock", "k", row)
 
         self.assertEqual(status, "concluida")
@@ -335,18 +336,25 @@ class TestRoteamentoExclusao(unittest.TestCase):
     @patch("worker_coleta.exclusao_coleta.apagar_extracao")
     @patch("worker_coleta._apagar_snapshot")
     @patch("worker_coleta.exclusao_coleta.conferir_extracao",
-           side_effect=SystemExit("[ERRO] termo divergente"))
+           side_effect=SystemExit("termo divergente: nada foi apagado."))
     @patch("worker_coleta.banco_conteudo.abrir")
     @patch("worker_coleta._patch_pedido")
-    def test_termo_divergente_nao_apaga_nada(
+    def test_conferencia_recusada_nao_apaga_em_camada_nenhuma(
         self, mock_patch, mock_abrir, mock_conferir, mock_del_snap, mock_apagar
     ):
+        """Termo divergente OU data de outra origem: a recusa acontece ANTES do
+        DELETE no Supabase — nem a web nem o disco são tocados."""
         row = {"id": 62, "tipo": "excluir", "rotulo": None,
-               "alvo": '{"termo":"PRF","extracao_local":7}'}
+               "alvo": '{"termo":"PRF","extracao_local":7,'
+                       '"iniciada_em":"2026-07-20T16:07:00"}'}
         self.assertEqual(
             worker_coleta.processar_exclusao("http://mock", "k", row), "erro")
         mock_del_snap.assert_not_called()
         mock_apagar.assert_not_called()
+        # a mensagem tem de chegar legível na fila, não como "1"
+        msg = [c[0][3]["mensagem"] for c in mock_patch.call_args_list
+               if c[0][3].get("status") == "erro"][0]
+        self.assertIn("termo divergente", msg)
 
 
 if __name__ == "__main__":

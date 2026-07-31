@@ -118,11 +118,15 @@ export async function pedirExclusaoColeta(formData: FormData) {
   const termo = String(formData.get("termo") ?? "").trim();
   const extracaoLocal = Number(formData.get("extracaoLocal"));
   const snapshotId = Number(formData.get("snapshotId"));
+  const iniciadaEm = String(formData.get("iniciadaEm") ?? "").trim();
   const confirmacao = String(formData.get("confirmacao") ?? "").trim();
 
   if (!termo || !Number.isInteger(extracaoLocal) || extracaoLocal <= 0) {
     redirect("/admin?msg=exclusao-erro");
   }
+  // Snapshot antigo sem iniciada_em não é excluível pela tela: sem a data não
+  // há como o worker confirmar que a extração N do disco dele é ESTA coleta.
+  if (!iniciadaEm) redirect("/admin?msg=exclusao-sem-data");
   // A confirmação digitada é re-validada NO SERVIDOR — o botão desabilitado do
   // cliente é conveniência, não trava.
   if (confirmacao !== termo) redirect("/admin?msg=exclusao-confirmacao");
@@ -171,6 +175,9 @@ export async function pedirExclusaoColeta(formData: FormData) {
     alvo: montarAlvoExclusao({
       termo,
       extracaoLocal,
+      // sem a data o worker recusa o pedido (não dá para saber de qual banco
+      // é a extração N) — melhor recusar aqui, com mensagem clara
+      iniciadaEm: iniciadaEm || null,
       snapshotId: Number.isInteger(snapshotId) ? snapshotId : null,
       vacuum: false,   // VACUUM é a entrega 1b
     }),

@@ -123,6 +123,11 @@ export async function mudarStatus(
 export interface AlvoExclusao {
   termo: string;
   extracaoLocal: number;
+  // Desempata QUAL banco: `extracao_local` é um AUTOINCREMENT por conteudo.db,
+  // e vários bancos publicam no mesmo Supabase (VPS, notebook e ao menos um
+  // terceiro — constatado em 31/07 com dois "BACEN #1" distintos). Sem a data,
+  // o worker apagaria a coleta errada quando os números colidem no mesmo termo.
+  iniciadaEm: string | null;
   snapshotId: number | null;
   vacuum: boolean;
 }
@@ -131,6 +136,7 @@ export function montarAlvoExclusao(a: AlvoExclusao): string {
   return JSON.stringify({
     termo: a.termo,
     extracao_local: a.extracaoLocal,
+    iniciada_em: a.iniciadaEm,
     snapshot_id: a.snapshotId,
     vacuum: a.vacuum,
   });
@@ -147,6 +153,7 @@ export function lerAlvoExclusao(alvo: string): AlvoExclusao | null {
     return {
       termo,
       extracaoLocal,
+      iniciadaEm: typeof o.iniciada_em === "string" ? o.iniciada_em : null,
       snapshotId: typeof o.snapshot_id === "number" ? o.snapshot_id : null,
       vacuum: o.vacuum === true,
     };

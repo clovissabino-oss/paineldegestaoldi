@@ -215,10 +215,15 @@ def processar_exclusao(rest, key, row):
     _patch_pedido(rest, key, pid, {"status": "rodando",
                                    "iniciado_em": datetime.now(timezone.utc).isoformat()})
     try:
-        termo, extracao_local, vacuum = exclusao_coleta.ler_pedido_exclusao(row)
+        p = exclusao_coleta.ler_pedido_exclusao(row)
+        termo, extracao_local, vacuum = p.termo, p.extracao_local, p.vacuum
         con = banco_conteudo.abrir(BANCO)
         try:
-            ext = exclusao_coleta.conferir_extracao(con, extracao_local, termo)
+            # Confere ANTES de tocar no Supabase: termo E data de início. A data
+            # é o que impede apagar a coleta errada quando outro conteudo.db
+            # publicou uma extração com o mesmo número (ver conferir_extracao).
+            ext = exclusao_coleta.conferir_extracao(con, extracao_local, termo,
+                                                    p.iniciada_em)
             mais_recente = bool(ext) and exclusao_coleta.era_a_mais_recente(con, extracao_local)
             pendencias = exclusao_coleta.contar_pendencias(con, extracao_local) if ext else 0
             # Supabase PRIMEIRO. Morrer aqui deixa "sumiu da web mas ainda ocupa
