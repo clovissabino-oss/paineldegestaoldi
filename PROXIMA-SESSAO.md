@@ -542,9 +542,49 @@ Exigiu `allowImportingTsExtensions` no `tsconfig` — válido porque o projeto �
 **Ordem de deploy:** SQL → provar a falha limpa do worker antigo → `git pull` + restart do
 worker → merge da web.
 
+### 🔴 Furo do desenho achado no 1º teste real (31/07) — corrigido, mas leia isto
+
+O spec e o roadmap assumiram **um** `conteudo.db`. São pelo menos **três** publicando no mesmo
+Supabase. Constatado nos dados:
+
+| Origem | extração #1 | extração #2 |
+|---|---|---|
+| VPS | `TESTE-VPS-APAGAR` 21/07 | `Itajaí-SC` 22/07 |
+| Este notebook | `BACEN` 06/07 18:30 | `BACEN` 06/07 23:56 |
+| Supabase diz | `BACEN` **30/07 22:49** | `BACEN` 06/07 23:56 |
+
+O `BACEN extracao_local=1` do Supabase (30/07) **não é** o do VPS nem o deste notebook — veio de
+uma terceira cópia (provavelmente `C:\⚙️ Projetos_Dev\`). Ou seja: **`extracao_local` é um
+AUTOINCREMENT por banco, e `(termo, extracao_local)` NÃO identifica uma coleta globalmente.**
+
+A trava de termo pega colisão entre concursos diferentes, mas **não** entre dois BACEN — que é
+exatamente o caso real. O pedido #16 só não apagou a coleta errada por sorte: ele pedia a #2, e
+a #2 do VPS é Itajaí (termo diferente).
+
+**Correção:** o alvo passou a carregar `iniciada_em`, e `conferir_extracao` compara os 19
+primeiros caracteres da data (SQLite grava naive `2026-07-06T23:56:22`, o Supabase devolve
+`...+00:00`). Colisão vira **recusa limpa**. Alvo do formato antigo (sem data) é recusado —
+refazer o pedido pela tela. Coberto por `test_mesmo_numero_e_mesmo_termo_mas_outra_origem_recusa`.
+
+**Consequência que muda o alvo do aceite:** as duas duplicatas do BACEN (64.838 blocos cada)
+estão **neste notebook**, não no VPS. O worker só enxerga o disco do VPS, então a exclusão pela
+web nunca vai liberar esse espaço — ela apaga o snapshot e reporta "a extração já não existia no
+conteudo.db". Para limpar as duplicatas locais **falta um caminho de linha de comando** (não
+construído; decidir se vale).
+
+**Outros dois defeitos que este teste expôs, corrigidos junto:**
+- `mensagem: "1"` na fila — o `extrator_ldi.falha()` faz `print(msg)` e levanta `SystemExit(1)`,
+  então o texto ia para o log e a fila recebia `"1"`. `exclusao_coleta._falhar()` carrega o texto
+  na exceção. (O caminho de coleta continua com o comportamento antigo.)
+- A `/admin` é server component **sem polling** — o selo congelava no estado do carregamento
+  (vi "exclusão pedida" com o pedido já em `erro` havia minutos). Agora dá `router.refresh()` a
+  cada 5s **enquanto** houver pedido em voo.
+
 **Backlog que a 1a criou:** a **1c** — extrações que existem no `conteudo.db` mas nunca foram
 publicadas (sync falhou, é não-fatal) ocupam disco e **não aparecem** na lista. A tela diz isso
-em nota. Fechar exige o worker publicar um inventário do SQLite.
+em nota. Fechar exige o worker publicar um inventário do SQLite. **Já é concreto:** o VPS tem
+`#1 TESTE-VPS-APAGAR` (783 blocos) e `#11 Área Fiscal` (0/0, coleta cancelada) ocupando disco
+sem nenhuma linha na tela.
 
 ---
 
