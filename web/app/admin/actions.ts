@@ -4,11 +4,17 @@ import { redirect } from "next/navigation";
 import { criarClienteAdmin } from "../../lib/supabase/admin";
 import { exigirAdmin } from "../../lib/papeis";
 import { probarCookieLdi } from "../../lib/ldi";
+import {
+  montarAlvoExclusao, lerAlvoExclusao, chaveColeta, mudarStatus,
+  type Pedido,
+} from "../../lib/coleta";
 
 const DOMINIO_APROVADO = "@estrategia.com";
 const PAPEIS_VALIDOS = ["", "operador", "admin"];
 // telas que podem hospedar o formulário do cookie (whitelist do redirect)
 const DESTINOS_COOKIE = ["/admin", "/coleta"];
+// Pedidos de exclusão que ainda podem agir sobre o alvo.
+const EXCLUSAO_EM_JOGO = ["pendente", "rodando"];
 
 export async function convidarUsuario(formData: FormData) {
   await exigirAdmin();
@@ -103,4 +109,100 @@ export async function atualizarCookie(formData: FormData) {
     redirect(`${voltar}?msg=cookie-erro`);
   }
   redirect(`${voltar}?msg=${veredito === "ok" ? "cookie-ok" : "cookie-salvo-sem-validar"}`);
+}
+
+// Enfileira a exclusão de uma coleta. NÃO apaga nada aqui: o conteudo.db vive
+// no disco do VPS, que a Vercel não alcança — quem apaga é o worker.
+export async function pedirExclusaoColeta(formData: FormData) {
+  const user = await exigirAdmin();
+  const termo = String(formData.get("termo") ?? "").trim();
+  const extracaoLocal = Number(formData.get("extracaoLocal"));
+  const snapshotId = Number(formData.get("snapshotId"));
+  const confirmacao = String(formData.get("confirmacao") ?? "").trim();
+
+  if (!termo || !Number.isInteger(extracaoLocal) || extracaoLocal <= 0) {
+    redirect("/admin?msg=exclusao-erro");
+  }
+  // A confirmação digitada é re-validada NO SERVIDOR — o botão desabilitado do
+  // cliente é conveniência, não trava.
+  if (confirmacao !== termo) redirect("/admin?msg=exclusao-confirmacao");
+
+  const admin = criarClienteAdmin();
+
+  // Trava 1: já existe pedido de exclusão em jogo para o mesmo alvo.
+  const { data: pedidos, error: erroPedidos } = await admin
+    .from("coleta_pedido")
+    .select("*")
+    .eq("tipo", "excluir")
+    .in("status", EXCLUSAO_EM_JOGO);
+  if (erroPedidos) {
+    console.error("[admin] pedirExclusaoColeta (fila):", erroPedidos.message);
+    redirect("/admin?msg=exclusao-erro");
+  }
+  const alvoChave = chaveColeta(termo, extracaoLocal);
+  const jaPedido = (pedidos ?? []).some((p) => {
+    const a = lerAlvoExclusao((p as Pedido).alvo);
+    return a !== null && chaveColeta(a.termo, a.extracaoLocal) === alvoChave;
+  });
+  if (jaPedido) redirect("/admin?msg=exclusao-repetida");
+
+  // Trava 2: não apagar o que está sendo escrito agora.
+  // ATENÇÃO ao alcance real desta trava: `extracao_id` só é gravado no pedido
+  // QUANDO ELE CONCLUI, então uma coleta em andamento normalmente tem
+  // extracao_id nulo e não é pega aqui. Ela ainda vale para pedidos
+  // reprocessados (que já têm o id de uma execução anterior), mas quem de fato
+  // serializa exclusão × coleta é o WORKER SER ÚNICO E SERIAL — um pedido por
+  // vez. Não remover a trava, mas também não confiar nela como se fosse a
+  // garantia principal.
+  const { data: rodando, error: erroRodando } = await admin
+    .from("coleta_pedido")
+    .select("id")
+    .eq("status", "rodando")
+    .eq("extracao_id", extracaoLocal)
+    .limit(1);
+  if (erroRodando) {
+    console.error("[admin] pedirExclusaoColeta (rodando):", erroRodando.message);
+    redirect("/admin?msg=exclusao-erro");
+  }
+  if ((rodando ?? []).length > 0) redirect("/admin?msg=exclusao-em-uso");
+
+  const { error } = await admin.from("coleta_pedido").insert({
+    tipo: "excluir",
+    alvo: montarAlvoExclusao({
+      termo,
+      extracaoLocal,
+      snapshotId: Number.isInteger(snapshotId) ? snapshotId : null,
+      vacuum: false,   // VACUUM é a entrega 1b
+    }),
+    rotulo: null,
+    pedido_por: user.email ?? "",
+    status: "pendente",
+  });
+  if (error) {
+    console.error("[admin] pedirExclusaoColeta (insert):", error.message);
+    redirect("/admin?msg=exclusao-erro");
+  }
+  redirect("/admin?msg=exclusao-enfileirada");
+}
+
+export async function retentarExclusao(formData: FormData) {
+  await exigirAdmin();
+  const id = Number(formData.get("id"));
+  if (!id) redirect("/admin?msg=exclusao-erro");
+
+  const admin = criarClienteAdmin();
+  let mudou: boolean;
+  try {
+    // Transição ATÔMICA (update condicional): se o status mudou entre o
+    // render e o clique, zero linhas são atualizadas e nada é sobrescrito.
+    mudou = await mudarStatus(admin, id, "pendente", ["erro"], {
+      mensagem: null, progresso: null, iniciado_em: null,
+      concluido_em: null, extracao_id: null,
+    });
+  } catch (e) {
+    console.error("[admin] retentarExclusao:", e instanceof Error ? e.message : e);
+    redirect("/admin?msg=exclusao-erro");
+  }
+  if (!mudou) redirect("/admin?msg=exclusao-status-mudou");
+  redirect("/admin?msg=exclusao-retentada");
 }
