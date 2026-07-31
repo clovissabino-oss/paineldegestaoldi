@@ -1,6 +1,6 @@
 # 🎬 Extrator LDI — Estado atual (norte da próxima sessão)
 
-_Última atualização: 29/07/2026 (sessão 10: avaliação por item + ordem real do curso)._
+_Última atualização: 30/07/2026 (sessão 11: exclusão de coleta pelo admin — entrega 1a)._
 
 Este arquivo é o **ponto de partida** de qualquer nova sessão. Para o passo a passo
 de uso, veja o `TUTORIAL.md`. Para a visão do projeto, a memória do Claude
@@ -464,13 +464,12 @@ Duas features, quebradas em 4 entregas, nesta ordem: **1a → 2a → 1b → 2b**
 
 | # | Entrega | Estado |
 |---|---|---|
-| **1a** | Admin exclui uma coleta (lógica, sem VACUUM) | **próxima a fazer** |
-| 2a | Buscar termo → selecionar vários cursos → "coletar juntos" | planejada |
+| **1a** | Admin exclui uma coleta (lógica, sem VACUUM) | **código pronto (sessão 11)** — falta o deploy e o aceite |
+| 2a | Buscar termo → selecionar vários cursos → "coletar juntos" | **próxima a fazer** |
 | 1b | VACUUM + checagem de espaço | planejada |
 | 2b | "Coletar separados" + rótulos + selos de reincidência | planejada |
 
-**Comece pela 1a.** Ela precisa de spec + plano próprios antes de codar (ritual do projeto). O
-roadmap já traz o desenho fechado: modelagem do pedido, travas, sequência do worker e os 6 testes.
+**A 1a foi construída em 30/07 (sessão 11) — ver abaixo. A próxima a fazer é a 2a.**
 
 **Os três fatos que mais importam para quem pegar isso:**
 1. O `conteudo.db` **vive no VPS** — a Vercel não alcança o disco. Toda exclusão local passa pelo
@@ -479,6 +478,73 @@ roadmap já traz o desenho fechado: modelagem do pedido, travas, sequência do w
    último** (lixo visível é melhor que lixo invisível).
 3. `snapshot_atual` faz `distinct on (termo)` — é a armadilha que define a 2b: 30 coletas separadas
    com o mesmo rótulo deixariam 29 invisíveis, em silêncio.
+
+---
+
+## ✅ Sessão 11 (30/07): entrega 1a — o admin exclui uma coleta
+
+Spec: `docs\superpowers\specs\2026-07-30-exclusao-coleta-design.md`;
+plano: `docs\superpowers\plans\2026-07-30-exclusao-coleta.md`.
+Branch `feat/exclusao-coleta` (7 commits). **Suíte de 119 → 139 testes, verde.**
+
+O clique na `/admin` **não apaga nada**: enfileira `coleta_pedido` com `tipo='excluir'`, e o
+worker do VPS apaga o snapshot no Supabase **e** a extração no `conteudo.db`. O `conteudo.db`
+vive no disco do VPS — a Vercel não alcança, então não havia alternativa a passar pela fila.
+Bônus de graça: **o worker é único e serial**, o que serializa exclusão contra coleta.
+
+**As três decisões que sustentam a segurança disso:**
+
+1. **O alvo é um JSON**, nunca um termo legível
+   (`{"termo":"BACEN","extracao_local":37,...}`). Se o worker ANTIGO pegar o pedido, trata o
+   JSON como `search_term`, não acha curso e vira `erro` — falha limpa, retentável. Um alvo
+   legível faria o worker antigo **recoletar** o termo que se pediu para apagar.
+2. **Supabase primeiro, SQLite depois.** Morrer no meio deixa "sumiu da web mas ainda ocupa
+   disco" (inofensivo). A ordem inversa deixaria a web mostrando coleta que não existe mais.
+3. **`extracoes` é o ÚLTIMO dos 6 DELETEs**, todos numa transação. Enquanto essa linha existir,
+   o painel ainda *enxerga* a extração (visivelmente errada). Se sumisse primeiro e o processo
+   caísse, ficariam centenas de MB de blocos que nenhuma tela lista. Lixo visível > invisível.
+
+`pendencias`/`acionamentos` são **preservadas** — o worker só conta e informa que os números
+continuarão velhos até a próxima coleta do termo. A confirmação **exige digitar o termo**
+(sempre), e avisa quando é a única coleta ou a mais recente (aí a web cai para a anterior **sem
+aviso**, por causa do `distinct on (termo)` da `snapshot_atual`).
+
+**Os dois testes que valem mais que os outros — e a prova de que discriminam:**
+- `test_atomicidade_falha_no_meio_nao_apaga_nada`: com um DELETE do meio estourando, **nada**
+  pode ter sido apagado. Rodei sem o `with con:` e ele **falhou** (`blocos`/`aulas` já em 0) —
+  não é tautológico, prova mesmo a ausência de órfão silencioso.
+- A checagem 4b de `web/checks/coleta.check.ts`: pedido de exclusão **cancelado** não pode
+  deixar selo na linha. Rodei sem o filtro e ela **falhou** (1 ≠ 0).
+
+**Defeito achado e corrigido na auto-revisão:** a consulta da `/admin` não filtrava status, e um
+pedido `cancelada` renderizaria como **"⛔ falhou: erro"** com botão Retentar — erro que ninguém
+cometeu. Filtro agora em dois lugares (`indexarPedidosExclusao` + a query).
+
+**Trava com alcance menor do que parece (documentado no código, não esconder):** a checagem
+"não apagar extração em uso" olha `coleta_pedido.extracao_id`, que **só é gravado quando o
+pedido conclui** — uma coleta em andamento normalmente tem esse campo nulo e não é pega. Quem
+de fato serializa é o worker ser único e serial. A trava fica, mas não é a garantia principal.
+
+**Sobre o `web/`:** ganhou `checks/*.check.ts`, rodado à mão com
+`cd web && node --experimental-strip-types checks/coleta.check.ts` (Node 22+; testado no 24).
+Exigiu `allowImportingTsExtensions` no `tsconfig` — válido porque o projeto é `noEmit`.
+
+**⚠ Falta (tudo exige o Clovis):**
+1. Push da branch `feat/exclusao-coleta` + PR → `main`.
+2. Aplicar `supabase\schema_coleta_exclusao.sql` no Supabase (SQL Editor → Run).
+3. **ANTES de atualizar o worker**, enfileirar um pedido `excluir` e confirmar que o worker
+   antigo o marca `erro` sem coletar nada. É a defesa da migração — **provar, não presumir**.
+4. `git pull` + `systemctl restart worker-coleta` no VPS; retentar o mesmo pedido.
+5. Teste real na **extração 1 ou 2 do BACEN** (as duplicatas de 64.838 blocos): conferir que a
+   outra fica intacta e que `pendencias`/`acionamentos` não mudam de contagem.
+6. Conferir na web que o snapshot sumiu do seletor e que o termo caiu para a coleta anterior.
+
+**Ordem de deploy:** SQL → provar a falha limpa do worker antigo → `git pull` + restart do
+worker → merge da web.
+
+**Backlog que a 1a criou:** a **1c** — extrações que existem no `conteudo.db` mas nunca foram
+publicadas (sync falhou, é não-fatal) ocupam disco e **não aparecem** na lista. A tela diz isso
+em nota. Fechar exige o worker publicar um inventário do SQLite.
 
 ---
 
