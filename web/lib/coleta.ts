@@ -257,3 +257,102 @@ export function montarListaColetas(
   }
   return lista;
 }
+
+// ————— Busca de cursos no LDI (entrega 2a) —————
+// Spec: docs/superpowers/specs/2026-08-01-busca-selecao-cursos-design.md
+
+// search_term vazio devolve o catálogo INTEIRO (127.309 cursos) COM as árvores
+// — derrubaria a função serverless. É a trava mais importante desta entrega.
+export const TERMO_MINIMO = 3;
+// per_page é a ÚNICA alavanca de volume: a API ignora qualquer projeção
+// (7 parâmetros testados no spike, todos devolvem o payload inteiro).
+export const POR_PAGINA = 100;
+export const CURSOS_NA_TELA = 30;
+export const LIMITE_SELECAO = 30;
+
+// Forma crua do curso na resposta do LDI. Só os campos que usamos —
+// `authors_name` vem SEMPRE null na listagem (medido), por isso não entra
+// no DTO: o nome do professor é buscado sob demanda, ao marcar o curso.
+export interface CursoLdiBruto {
+  id: string;
+  name?: string | null;
+  published?: boolean | null;
+  created_at?: string | null;
+  description?: string | null;
+  content_tree_cache?: Array<{ items?: unknown[] | null }> | null;
+}
+
+// O DTO que vai ao navegador: ~200 bytes por curso, SEM a árvore.
+export interface CursoBusca {
+  id: string;
+  nome: string;
+  descricao: string | null;
+  publicado: boolean;
+  criadoEm: string | null;
+  capitulos: number;
+  aulas: number;
+  // curso de 0 capítulos gera extração vazia (o VPS já tem uma: "Área Fiscal"
+  // #11, 0 cursos/0 blocos) — aparece na lista, mas não se deixa marcar.
+  selecionavel: boolean;
+}
+
+export interface ResultadoBusca {
+  cursos: CursoBusca[];      // no máximo CURSOS_NA_TELA
+  encontrados: number;       // total buscado (até POR_PAGINA)
+  comConteudo: number;       // quantos têm árvore, entre os buscados
+  podeHaverMais: boolean;
+}
+
+export function termoValido(termo: string): boolean {
+  return (termo ?? "").trim().length >= TERMO_MINIMO;
+}
+
+// Lê a árvore e devolve NÚMEROS — a árvore em si é descartada aqui, no
+// servidor. Capítulo sem `items` conta como capítulo com 0 aulas: acontece de
+// verdade (curso em montagem com 46 capítulos e 6 aulas, visto no spike).
+export function contarArvore(bruto: CursoLdiBruto): {
+  capitulos: number;
+  aulas: number;
+} {
+  const caps = Array.isArray(bruto?.content_tree_cache) ? bruto.content_tree_cache : [];
+  let aulas = 0;
+  for (const cap of caps) {
+    aulas += Array.isArray(cap?.items) ? cap.items.length : 0;
+  }
+  return { capitulos: caps.length, aulas };
+}
+
+// Descrição só quando acrescenta informação: medida vazia em 27 de 30 cursos,
+// e quando existe costuma repetir o nome.
+function descricaoUtil(bruto: CursoLdiBruto): string | null {
+  const d = (bruto?.description ?? "").trim();
+  if (!d) return null;
+  return d.toLowerCase() === (bruto?.name ?? "").trim().toLowerCase() ? null : d;
+}
+
+// Converte o payload cru no DTO leve. NÃO reordena: a API já entrega por
+// created_at desc, e é essa ordem que a tela mostra.
+export function converterCursosBusca(brutos: CursoLdiBruto[]): ResultadoBusca {
+  const lista = Array.isArray(brutos) ? brutos : [];
+  const cursos = lista.slice(0, CURSOS_NA_TELA).map((b): CursoBusca => {
+    const { capitulos, aulas } = contarArvore(b);
+    return {
+      id: String(b?.id ?? ""),
+      nome: (b?.name ?? "").trim() || "(sem nome)",
+      descricao: descricaoUtil(b),
+      publicado: b?.published === true,
+      criadoEm: b?.created_at ?? null,
+      capitulos,
+      aulas,
+      selecionavel: capitulos > 0,
+    };
+  });
+  return {
+    cursos,
+    encontrados: lista.length,
+    comConteudo: lista.filter((b) => contarArvore(b).capitulos > 0).length,
+    // meta.total do LDI mente (127.309 sempre) — a página cheia é a única
+    // pista honesta de que há mais resultados.
+    podeHaverMais: lista.length >= POR_PAGINA,
+  };
+}
