@@ -464,7 +464,7 @@ Duas features, quebradas em 4 entregas, nesta ordem: **1a → 2a → 1b → 2b**
 
 | # | Entrega | Estado |
 |---|---|---|
-| **1a** | Admin exclui uma coleta (lógica, sem VACUUM) | **código pronto (sessão 11)** — falta o deploy e o aceite |
+| **1a** | Admin exclui uma coleta (lógica, sem VACUUM) | ✅ **no ar e aceita em produção (31/07)** |
 | 2a | Buscar termo → selecionar vários cursos → "coletar juntos" | **próxima a fazer** |
 | 1b | VACUUM + checagem de espaço | planejada |
 | 2b | "Coletar separados" + rótulos + selos de reincidência | planejada |
@@ -529,18 +529,24 @@ de fato serializa é o worker ser único e serial. A trava fica, mas não é a g
 `cd web && node --experimental-strip-types checks/coleta.check.ts` (Node 22+; testado no 24).
 Exigiu `allowImportingTsExtensions` no `tsconfig` — válido porque o projeto é `noEmit`.
 
-**⚠ Falta (tudo exige o Clovis):**
-1. Push da branch `feat/exclusao-coleta` + PR → `main`.
-2. Aplicar `supabase\schema_coleta_exclusao.sql` no Supabase (SQL Editor → Run).
-3. **ANTES de atualizar o worker**, enfileirar um pedido `excluir` e confirmar que o worker
-   antigo o marca `erro` sem coletar nada. É a defesa da migração — **provar, não presumir**.
-4. `git pull` + `systemctl restart worker-coleta` no VPS; retentar o mesmo pedido.
-5. Teste real na **extração 1 ou 2 do BACEN** (as duplicatas de 64.838 blocos): conferir que a
-   outra fica intacta e que `pendencias`/`acionamentos` não mudam de contagem.
-6. Conferir na web que o snapshot sumiu do seletor e que o termo caiu para a coleta anterior.
+### ✅ ACEITE FEITO EM PRODUÇÃO (31/07) — a 1a está no ar e provada
 
-**Ordem de deploy:** SQL → provar a falha limpa do worker antigo → `git pull` + restart do
-worker → merge da web.
+Tudo verificado nos dados, não presumido: SQL aplicado, PRs mergeados, worker com `git pull` +
+restart, **8 coletas excluídas de verdade** pela tela. Evidências:
+
+- Relatório por tabela chegou legível na fila: *"blocos: 6665 · aulas_coletadas: 345 · aulas: 345
+  · capitulos: 36 · cursos: 1 · extracoes: 1. 3899 pendências foram apuradas contra esta coleta e
+  continuarão abertas…"*
+- **Zero órfãos** em `avaliacao_curso`/`pendencia_resumo` (o `on delete cascade` funcionou).
+- Idempotência confirmada: coletas que não existiam no disco do VPS deram `concluida` com
+  *"a extração já não existia no conteudo.db (só o snapshot foi removido)"*.
+- **A trava de colisão barrou um caso REAL** (pedido #27): *"termo divergente: o pedido diz
+  'BACEN', mas a extração 1 deste banco é de 'TESTE-VPS-APAGAR'. Nada foi apagado."* Sem ela, o
+  worker teria apagado o TESTE-VPS-APAGAR achando que era o BACEN. **Deixou de ser teórico.**
+
+**Pendente da 1a (o Clovis decidiu adiar):** os dois BACEN não são excluíveis pela web — eles
+vivem no `conteudo.db` do notebook, e o worker só alcança o disco do VPS. Falta um caminho de
+linha de comando (`exclusao_coleta.py` já tem toda a lógica; falta só o CLI).
 
 ### 🔴 Furo do desenho achado no 1º teste real (31/07) — corrigido, mas leia isto
 
