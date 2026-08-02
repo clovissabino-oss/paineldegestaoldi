@@ -21,9 +21,9 @@ export type VereditoProbe = "ok" | "recusado" | "inconclusivo";
 // challenge de WAF contra o egress do Vercel, não veredito sobre o cookie.
 // Rede/timeout/5xx = inconclusivo (quem confirma é o worker, em até 20s).
 export async function probarCookieLdi(sid: string): Promise<VereditoProbe> {
+  const controlador = new AbortController();
+  const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_PROBE_MS);
   try {
-    const controlador = new AbortController();
-    const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_PROBE_MS);
     const r = await fetch(URL_PROBE, {
       headers: {
         "x-vertical": X_VERTICAL,
@@ -34,7 +34,6 @@ export async function probarCookieLdi(sid: string): Promise<VereditoProbe> {
       cache: "no-store",
       signal: controlador.signal,
     });
-    clearTimeout(cronometro);
     if (r.status === 401) return "recusado";
     if (
       r.status === 403 &&
@@ -46,6 +45,8 @@ export async function probarCookieLdi(sid: string): Promise<VereditoProbe> {
     return "inconclusivo";
   } catch {
     return "inconclusivo";
+  } finally {
+    clearTimeout(cronometro);
   }
 }
 
@@ -64,9 +65,10 @@ export async function buscarNomeCursoLdi(
   sidComPrefixo: string,
   cursoId: string
 ): Promise<string | null | "sem-acesso"> {
+  const controlador = new AbortController();
+  const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_CURSO_MS);
+  // clearTimeout deve estar em finally, não aqui, pois catch de rede pularia o timeout.
   try {
-    const controlador = new AbortController();
-    const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_CURSO_MS);
     const r = await fetch(`${URL_CURSO}/${cursoId}`, {
       headers: {
         "x-vertical": X_VERTICAL,
@@ -77,13 +79,14 @@ export async function buscarNomeCursoLdi(
       cache: "no-store",
       signal: controlador.signal,
     });
-    clearTimeout(cronometro);
     if (r.status === 401 || r.status === 403) return "sem-acesso";
     if (!r.ok) return null;
     const corpo = (await r.json()) as { data?: { name?: string } | null };
     return corpo?.data?.name ?? null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(cronometro);
   }
 }
 
@@ -125,9 +128,9 @@ export async function buscarCursosLdi(
   const url =
     `${URL_CURSO}?page=1&per_page=${POR_PAGINA}&sort=desc&order_by=created_at` +
     `&search_term=${encodeURIComponent(termo)}`;
+  const controlador = new AbortController();
+  const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_BUSCA_MS);
   try {
-    const controlador = new AbortController();
-    const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_BUSCA_MS);
     const r = await fetch(url, {
       headers: {
         "x-vertical": X_VERTICAL,
@@ -138,12 +141,13 @@ export async function buscarCursosLdi(
       cache: "no-store",
       signal: controlador.signal,
     });
-    clearTimeout(cronometro);
     if (r.status === 401 || r.status === 403) return "sem-acesso";
     if (!r.ok) return null;
     const corpo = (await r.json()) as { data?: CursoLdiBruto[] | null };
     return Array.isArray(corpo?.data) ? corpo.data : [];
   } catch {
     return null; // rede, timeout, JSON inválido
+  } finally {
+    clearTimeout(cronometro);
   }
 }
