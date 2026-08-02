@@ -123,7 +123,7 @@ export async function buscarCursos(
 
   const brutos = await buscarCursosLdi(cookie, limpo);
   if (brutos === "sem-acesso") {
-    return { erro: "O cookie do LDI está inválido — renove no bloco 🍪 acima.", resultado: null };
+    return { erro: "O cookie do LDI está inválido — peça a um admin para renová-lo.", resultado: null };
   }
   if (brutos === null) {
     return { erro: "A busca no LDI falhou (rede ou tempo esgotado) — tente de novo.", resultado: null };

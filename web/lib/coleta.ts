@@ -267,12 +267,17 @@ export const TERMO_MINIMO = 3;
 // per_page é a ÚNICA alavanca de volume: a API ignora qualquer projeção
 // (7 parâmetros testados no spike, todos devolvem o payload inteiro).
 export const POR_PAGINA = 100;
+// O "marcar todos" da tela (busca-cursos.tsx) faz slice(0, LIMITE_SELECAO)
+// sobre os CURSOS_NA_TELA exibidos — só funciona porque hoje as duas valem
+// 30. Se CURSOS_NA_TELA crescer sem LIMITE_SELECAO acompanhar, o clique
+// passa a ignorar em silêncio os cursos além do limite (checkbox que não
+// marca e não avisa nada).
 export const CURSOS_NA_TELA = 30;
 export const LIMITE_SELECAO = 30;
 
 // Forma crua do curso na resposta do LDI. Só os campos que usamos —
-// `authors_name` vem SEMPRE null na listagem (medido), por isso não entra
-// no DTO: o nome do professor é buscado sob demanda, ao marcar o curso.
+// `authors_name` vem SEMPRE null na listagem (medido); ter os nomes exigiria
+// uma requisição por curso, então ficou fora do DTO e adiado para a 2b.
 export interface CursoLdiBruto {
   id: string;
   name?: string | null;

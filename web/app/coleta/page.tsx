@@ -8,7 +8,7 @@ import { FormDisparo } from "./form-disparo";
 import { FilaColeta } from "./fila";
 
 export const dynamic = "force-dynamic";
-// o probe do cookie na action pode levar ~6s — folga na função serverless
+// quem manda no número é a busca de cursos (timeout de 20s) — folga na função serverless
 export const maxDuration = 30;
 
 const MENSAGENS: Record<string, string> = {
