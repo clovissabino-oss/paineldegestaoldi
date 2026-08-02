@@ -465,7 +465,7 @@ Duas features, quebradas em 4 entregas, nesta ordem: **1a → 2a → 1b → 2b**
 | # | Entrega | Estado |
 |---|---|---|
 | **1a** | Admin exclui uma coleta (lógica, sem VACUUM) | ✅ **no ar e aceita em produção (31/07)** |
-| **2a** | Buscar termo → selecionar vários cursos → "coletar juntos" | ✅ **código pronto e revisado (01/08)** — falta merge + aceite |
+| **2a** | Buscar termo → selecionar vários cursos → "coletar juntos" | ✅ **no ar e aceita em produção (01/08)** |
 | 1b | VACUUM + checagem de espaço | planejada |
 | 2b | "Coletar separados" + rótulos + selos + **autores na busca** | planejada |
 
@@ -669,14 +669,19 @@ vazou para o cliente).
 A checagem que mais importa é a que garante que **a árvore não vai ao navegador** — e ela foi
 **provada discriminante**: com a árvore incluída de propósito, falha com "árvore vazou no DTO!".
 
-**⚠ Falta:** PR → `main` (o merge deploya no Vercel) e o aceite na tela publicada:
-1. Buscar "Área Fiscal" → conferir **62 encontrados · 43 com conteúdo**, "Governança de TI" e
-   "Informática" com 0 cap e caixa desabilitada.
-2. **Aba Network: a resposta da action tem de vir em KB, não MB** — é a prova de que a árvore
-   ficou no servidor.
-3. Buscar "Direito" → aviso "a busca veio cheia, pode haver mais".
-4. Marcar 2 cursos, rotular, coletar juntos → **um** pedido `ids` → um snapshot com os dois.
-5. Conferir que o modo "termo inteiro" continua funcionando como antes.
+### ✅ Aceite em produção (01/08)
+
+O Clovis testou na tela publicada: **a busca funciona e o seletor de cursos funciona**. E o
+critério que mais importava foi confirmado — na aba Network, a resposta da server action vem em
+**kB, não MB**: a árvore (2,5–5 MB) ficou no servidor e só o DTO atravessou. É a prova, no
+caminho real, do que a checagem `busca.check.ts` garante no código.
+
+**Ainda não conferidos** (não bloqueiam — a entrega está em uso):
+1. Contagem exata contra o admin do LDI ("Área Fiscal" → 62 encontrados · 43 com conteúdo).
+2. Buscar "Direito" → aviso "a busca veio cheia, pode haver mais".
+3. Marcar 2 cursos, rotular, coletar juntos → **um** pedido `ids` → um snapshot com os dois
+   (é o caminho que a 2b vai estressar).
+4. Modo "termo inteiro" continua funcionando como antes.
 
 **Worker do VPS NÃO precisa de `git pull`** — o disparo usa `tipo:"ids"`, que ele já sabe fazer, e
 nenhum módulo alcançado por import do `coletor_ldi.py` mudou (afirmação seguindo a cadeia de
