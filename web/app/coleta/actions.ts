@@ -3,8 +3,12 @@
 import { redirect } from "next/navigation";
 import { criarClienteAdmin } from "../../lib/supabase/admin";
 import { exigirAdmin, exigirOperador } from "../../lib/papeis";
-import { extrairIds, enfileirar, mudarStatus } from "../../lib/coleta";
-import { buscarNomeCursoLdi } from "../../lib/ldi";
+import {
+  extrairIds, enfileirar, mudarStatus,
+  converterCursosBusca, termoValido, TERMO_MINIMO, LIMITE_SELECAO,
+  type ResultadoBusca,
+} from "../../lib/coleta";
+import { buscarNomeCursoLdi, buscarCursosLdi } from "../../lib/ldi";
 
 const LIMITE_CONFERENCIA = 15;
 // pedidos "em jogo" para efeito de aviso de repetição — os demais (cancelada,
@@ -88,6 +92,46 @@ export async function conferirIds(
   return { erro: null, itens };
 }
 
+// Lista os cursos que um termo traria, para o operador escolher ANTES de
+// disparar. exigirOperador: quem já pode disparar tipo:"termo" (que colhe
+// TUDO) obviamente pode ver o que colheria.
+export async function buscarCursos(
+  termo: string
+): Promise<{ erro: string | null; resultado: ResultadoBusca | null }> {
+  await exigirOperador();
+
+  const limpo = (termo ?? "").trim();
+  if (!termoValido(limpo)) {
+    return {
+      erro: `Digite pelo menos ${TERMO_MINIMO} caracteres — busca vazia traria o catálogo inteiro.`,
+      resultado: null,
+    };
+  }
+
+  const admin = criarClienteAdmin();
+  const { data: config, error: erroConfig } = await admin
+    .from("config_ldi")
+    .select("cookie")
+    .eq("id", 1)
+    .maybeSingle<{ cookie: string | null }>();
+  if (erroConfig) {
+    console.error("[coleta] buscarCursos (config_ldi):", erroConfig.message);
+    return { erro: "Não foi possível ler o cookie do LDI — tente de novo.", resultado: null };
+  }
+  const cookie = config?.cookie ?? null;
+  if (!cookie) return { erro: "Sem cookie do LDI configurado.", resultado: null };
+
+  const brutos = await buscarCursosLdi(cookie, limpo);
+  if (brutos === "sem-acesso") {
+    return { erro: "O cookie do LDI está inválido — peça a um admin para renová-lo.", resultado: null };
+  }
+  if (brutos === null) {
+    return { erro: "A busca no LDI falhou (rede ou tempo esgotado) — tente de novo.", resultado: null };
+  }
+
+  return { erro: null, resultado: converterCursosBusca(brutos) };
+}
+
 // Dispara uma coleta: modo "termo" (busca por termo, ex. "PRF") ou modo
 // "ids" (IDs/URLs colados do admin — exige rótulo para identificar o lote).
 export async function disparar(formData: FormData) {
@@ -128,6 +172,30 @@ export async function disparar(formData: FormData) {
       });
     } catch (e) {
       console.error("[coleta] disparar (ids):", e instanceof Error ? e.message : e);
+      redirect("/coleta?msg=erro");
+    }
+    redirect("/coleta?msg=disparada");
+  }
+
+  if (modo === "selecao") {
+    const rotulo = String(formData.get("rotulo") ?? "").trim();
+    if (!rotulo) redirect("/coleta?msg=rotulo-vazio");
+
+    // getAll: a tela manda um campo `ids` por curso marcado.
+    const ids = formData.getAll("ids").map((v) => String(v)).filter(Boolean);
+    if (ids.length === 0) redirect("/coleta?msg=nenhum-selecionado");
+    if (ids.length > LIMITE_SELECAO) redirect("/coleta?msg=selecao-demais");
+
+    const admin = criarClienteAdmin();
+    try {
+      // tipo:"ids" — o worker já resolve por ID (coletor_ldi.py:224-228), então
+      // zero mudança lá, sem refazer a busca pesada no VPS, e a seleção fica
+      // CONGELADA: curso criado entre o clique e a execução não entra no lote.
+      await enfileirar(admin, {
+        tipo: "ids", alvo: ids.join(","), rotulo, pedido_por: user.email ?? "",
+      });
+    } catch (e) {
+      console.error("[coleta] disparar (selecao):", e instanceof Error ? e.message : e);
       redirect("/coleta?msg=erro");
     }
     redirect("/coleta?msg=disparada");

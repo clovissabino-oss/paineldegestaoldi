@@ -135,6 +135,16 @@ leitura, o valor nunca chega ao cliente) e o estado derivado (`cookie_status`, p
 pelo worker) aparece via `/api/cookie-status` como **banner** (vermelho vencido / amarelo
 ≤3 dias) nas telas React (`BannerCookie.tsx`) e nas cópias vanilla de `web\telas\`.
 
+**Busca com seleção múltipla (entrega 2a)**: a `/coleta` busca cursos por termo, lista com o peso
+de cada um e dispara um lote. **A API do LDI não aceita reduzir a projeção** (7 parâmetros
+testados; `fields=` dá 500) e devolve a árvore inteira por curso (29–49 KB) — então é **uma
+requisição `per_page=100`** e o DTO é montado no servidor **descartando a árvore**
+(`converterCursosBusca` em `web\lib\coleta.ts`; a checagem `web\checks\busca.check.ts` falha se a
+árvore vazar). `meta.total` **mente** (127.309 sempre) → "há mais" vem de a página ter vindo
+cheia. Trava: termo com **mínimo de 3 caracteres** (vazio = catálogo inteiro com árvores).
+Cursos sem árvore aparecem com "0 cap" e caixa desabilitada; `published=false` **não filtra**
+(rascunho cheio é a montagem nova). O disparo vira `tipo:"ids"` → **zero mudança no worker**.
+
 **Exclusão de coleta (entrega 1a)**: a mesma fila leva `tipo='excluir'`, com o **alvo em JSON**
 (`{"termo","extracao_local","snapshot_id","vacuum"}`) — nunca legível, para que um worker
 desatualizado falhe limpo em vez de recoletar o termo que se pediu para apagar. A lista das

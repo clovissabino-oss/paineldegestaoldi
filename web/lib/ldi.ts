@@ -3,6 +3,8 @@
 // Constantes espelham o lado Python (extrator_ldi.montar_sessao + config.json
 // do VPS, vertical "concursos") e o probe do worker (cookie_status.URL_PROBE).
 
+import { POR_PAGINA, type CursoLdiBruto } from "./coleta";
+
 const X_VERTICAL = "concursos";
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -19,9 +21,9 @@ export type VereditoProbe = "ok" | "recusado" | "inconclusivo";
 // challenge de WAF contra o egress do Vercel, não veredito sobre o cookie.
 // Rede/timeout/5xx = inconclusivo (quem confirma é o worker, em até 20s).
 export async function probarCookieLdi(sid: string): Promise<VereditoProbe> {
+  const controlador = new AbortController();
+  const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_PROBE_MS);
   try {
-    const controlador = new AbortController();
-    const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_PROBE_MS);
     const r = await fetch(URL_PROBE, {
       headers: {
         "x-vertical": X_VERTICAL,
@@ -32,7 +34,6 @@ export async function probarCookieLdi(sid: string): Promise<VereditoProbe> {
       cache: "no-store",
       signal: controlador.signal,
     });
-    clearTimeout(cronometro);
     if (r.status === 401) return "recusado";
     if (
       r.status === 403 &&
@@ -44,6 +45,8 @@ export async function probarCookieLdi(sid: string): Promise<VereditoProbe> {
     return "inconclusivo";
   } catch {
     return "inconclusivo";
+  } finally {
+    clearTimeout(cronometro);
   }
 }
 
@@ -62,9 +65,10 @@ export async function buscarNomeCursoLdi(
   sidComPrefixo: string,
   cursoId: string
 ): Promise<string | null | "sem-acesso"> {
+  const controlador = new AbortController();
+  const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_CURSO_MS);
+  // clearTimeout deve estar em finally, não aqui, pois catch de rede pularia o timeout.
   try {
-    const controlador = new AbortController();
-    const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_CURSO_MS);
     const r = await fetch(`${URL_CURSO}/${cursoId}`, {
       headers: {
         "x-vertical": X_VERTICAL,
@@ -75,13 +79,14 @@ export async function buscarNomeCursoLdi(
       cache: "no-store",
       signal: controlador.signal,
     });
-    clearTimeout(cronometro);
     if (r.status === 401 || r.status === 403) return "sem-acesso";
     if (!r.ok) return null;
     const corpo = (await r.json()) as { data?: { name?: string } | null };
     return corpo?.data?.name ?? null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(cronometro);
   }
 }
 
@@ -106,4 +111,43 @@ export function estadoCookie(
   if (s.valido) return "valido";
   if (s.dias_restantes != null && s.dias_restantes > 0) return "derrubado";
   return "vencido";
+}
+
+// A busca traz a árvore inteira de cada curso e não há como pedir menos: 7
+// parâmetros de projeção testados no spike de 01/08 (include_content_tree=false,
+// fields=, select=, lean=, simple=…) devolvem o MESMO payload byte a byte, e
+// `fields=` responde HTTP 500. Não insistir — só `per_page` controla o volume.
+// Uma página de 100 ≈ 2,5–5 MB; 3 páginas de "Direito" dariam 9,9 MB, acima do
+// limite de 4,5 MB de resposta de uma função no Vercel. Por isso: UMA página.
+const TIMEOUT_BUSCA_MS = 20000;
+
+export async function buscarCursosLdi(
+  sidComPrefixo: string,
+  termo: string
+): Promise<CursoLdiBruto[] | "sem-acesso" | null> {
+  const url =
+    `${URL_CURSO}?page=1&per_page=${POR_PAGINA}&sort=desc&order_by=created_at` +
+    `&search_term=${encodeURIComponent(termo)}`;
+  const controlador = new AbortController();
+  const cronometro = setTimeout(() => controlador.abort(), TIMEOUT_BUSCA_MS);
+  try {
+    const r = await fetch(url, {
+      headers: {
+        "x-vertical": X_VERTICAL,
+        Cookie: sidComPrefixo,
+        Accept: "application/json",
+        "User-Agent": USER_AGENT,
+      },
+      cache: "no-store",
+      signal: controlador.signal,
+    });
+    if (r.status === 401 || r.status === 403) return "sem-acesso";
+    if (!r.ok) return null;
+    const corpo = (await r.json()) as { data?: CursoLdiBruto[] | null };
+    return Array.isArray(corpo?.data) ? corpo.data : [];
+  } catch {
+    return null; // rede, timeout, JSON inválido
+  } finally {
+    clearTimeout(cronometro);
+  }
 }

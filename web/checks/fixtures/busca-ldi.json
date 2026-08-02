@@ -1,0 +1,174 @@
+{
+ "_origem": "GET /bo/ldi/courses?search_term=Área Fiscal&per_page=100 em 01/08/2026",
+ "_totais_reais": {
+  "encontrados": 62,
+  "com_arvore": 43
+ },
+ "data": [
+  {
+   "id": "a3299032-3ce3-46e8-b0ad-5c6febca3df3",
+   "name": "Tecnologia da Informação para Concursos da Área Fiscal (Curso Completo de Tecnologia da Informação)",
+   "published": false,
+   "created_at": "2026-07-30T23:31:03.397381Z",
+   "description": "",
+   "authors_name": null,
+   "authors": [
+    "8d298b99-0a43-49ff-8f86-991517f2e201"
+   ],
+   "_caps_reais": 46,
+   "_aulas_reais": 6,
+   "content_tree_cache": [
+    {
+     "chapter_id": "c98f559a-1acd-42a1-b971-ac7ccdbdd4ac",
+     "name": "Análise de Informações - Pirâmide DIKW. Dados Abertos. Metadados de Arquivos.",
+     "order_index": 0,
+     "items": []
+    },
+    {
+     "chapter_id": "b05b2cd4-9f48-465b-b30a-d2cd8b02f18e",
+     "name": "Governança de dados",
+     "order_index": 0,
+     "items": [
+      {
+       "item_id": "5fbb8fb8-2efe-412a-b0ff-145a9ebe14a5",
+       "name": "Governança de Dados - Conceitos Básicos",
+       "path": "2.1"
+      },
+      {
+       "item_id": "09afb1c2-27e6-450d-b3c7-2e4f1caafd93",
+       "name": "Governança de Dados - Resumo",
+       "path": "2.2"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "adabeda1-7e8f-4669-9f12-9f2d88583535",
+   "name": "Auditoria para Concursos da Área Fiscal (Curso Regular)",
+   "published": false,
+   "created_at": "2026-07-30T21:28:42.677742Z",
+   "description": "",
+   "authors_name": null,
+   "authors": [
+    "d60dcb97-9ab8-4bb6-ae88-3813f5321633",
+    "dc525814-d9ca-49bb-9c56-83ac0a1dc3a0"
+   ],
+   "_caps_reais": 12,
+   "_aulas_reais": 139,
+   "content_tree_cache": [
+    {
+     "chapter_id": "d41d673a-167e-41f7-8065-8c3c756ffc57",
+     "name": "Aula 00 - Conceitos Iniciais de Auditoria ",
+     "order_index": 0,
+     "items": [
+      {
+       "item_id": "c94cfbda-f50b-4a96-9504-e5a539bfe8d9",
+       "name": "Motivação da Aula (questões subjetivas)",
+       "path": "1.1"
+      },
+      {
+       "item_id": "c51a358f-41e3-4cd0-bbec-afcfb877a2e5",
+       "name": "Classificação da Auditoria",
+       "path": "1.2"
+      }
+     ]
+    },
+    {
+     "chapter_id": "db6e27d4-8f10-4a42-97c7-e1af4a6f2cf6",
+     "name": "Aula 01 - Auditoria Interna",
+     "order_index": 0,
+     "items": [
+      {
+       "item_id": "ff5ccaf9-4e16-4e58-9e3d-1918ad10e23c",
+       "name": "Contextualização",
+       "path": "2.1"
+      },
+      {
+       "item_id": "2b8bd0d5-f995-407c-92b0-d57cab6545ee",
+       "name": "Conceituação e Disposições Gerais - Teoria",
+       "path": "2.2"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "5bdbd2d9-a9c5-4b37-8148-882bc1382004",
+   "name": "Raciocínio Lógico e Matemática para Concursos da Área Fiscal (Curso Regular)",
+   "published": false,
+   "created_at": "2026-07-30T19:37:08.598576Z",
+   "description": "Raciocínio Lógico e Matemática para Concursos da Área Fiscal (Curso Regular)",
+   "authors_name": null,
+   "authors": [
+    "18ffafe5-faef-4098-913d-d3ce05108ab7"
+   ],
+   "_caps_reais": 36,
+   "_aulas_reais": 436,
+   "content_tree_cache": [
+    {
+     "chapter_id": "0eb948b5-c2f3-47e2-8017-3233d83db30f",
+     "name": "Estruturas Lógicas I",
+     "order_index": 0,
+     "items": [
+      {
+       "item_id": "cb232441-e181-4e56-8792-24c59a00f67a",
+       "name": "Introdução às Proposições - Teoria",
+       "path": "1.1"
+      },
+      {
+       "item_id": "ef07016e-7484-48de-94a5-6b7041cf7d67",
+       "name": "Introdução às proposições - CEBRASPE - Questões Comentadas",
+       "path": "1.2"
+      }
+     ]
+    },
+    {
+     "chapter_id": "1480f642-2170-4de1-b05e-fdd11a2a22c1",
+     "name": "Estruturas Lógicas II",
+     "order_index": 0,
+     "items": [
+      {
+       "item_id": "55a0eb03-b5b0-4878-9f5f-067b2dc4d43a",
+       "name": "Conversão de linguagem - Teoria",
+       "path": "2.1"
+      },
+      {
+       "item_id": "7b4f3b6e-9271-437c-80f2-5857bdbf073a",
+       "name": "Questões Comentadas - Conversão de Linguagem - Cebraspe",
+       "path": "2.2"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "68d0d098-4cb5-4037-823a-f8470ff3d471",
+   "name": "Governança de TI para Concursos da Área Fiscal (Curso Completo de Tecnologia da Informação)",
+   "published": false,
+   "created_at": "2026-07-30T23:31:17.200711Z",
+   "description": "",
+   "authors_name": null,
+   "authors": [
+    "e2177532-435c-44e8-a622-af48bf937dd2"
+   ],
+   "_caps_reais": 0,
+   "_aulas_reais": 0,
+   "content_tree_cache": []
+  },
+  {
+   "id": "1e4d8be9-a865-4aad-96ec-4624326d1a85",
+   "name": "Informática para Concursos da Área Fiscal (Curso Completo de Informática)",
+   "published": false,
+   "created_at": "2026-07-30T21:04:10.367413Z",
+   "description": "",
+   "authors_name": null,
+   "authors": [
+    "8d298b99-0a43-49ff-8f86-991517f2e201"
+   ],
+   "_caps_reais": 0,
+   "_aulas_reais": 0,
+   "content_tree_cache": []
+  }
+ ]
+}
