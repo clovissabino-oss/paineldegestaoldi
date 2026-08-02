@@ -1,6 +1,6 @@
 import { criarClienteServidor } from "../../lib/supabase/servidor";
 import { exigirOperador } from "../../lib/papeis";
-import { listarFila } from "../../lib/coleta";
+import { listarFila, LIMITE_SELECAO } from "../../lib/coleta";
 import { BannerCookie } from "../../components/BannerCookie";
 import { CookieLdi } from "../../components/CookieLdi";
 import type { StatusCookie } from "../../lib/ldi";
@@ -15,6 +15,8 @@ const MENSAGENS: Record<string, string> = {
   "termo-vazio": "Informe um termo de busca.",
   "ids-invalidos": "Não achei um ID de curso em algum dos itens colados — confira e tente de novo.",
   "rotulo-vazio": "Informe um rótulo para identificar o lote de IDs.",
+  "nenhum-selecionado": "⚠ Marque pelo menos um curso antes de coletar.",
+  "selecao-demais": `⚠ Selecione no máximo ${LIMITE_SELECAO} cursos por lote.`,
   erro: "❌ Não foi possível concluir — tente de novo.",
   "status-mudou": "⚠ O status desse pedido já mudou — a lista foi atualizada.",
   disparada: "✅ Coleta adicionada à fila.",
