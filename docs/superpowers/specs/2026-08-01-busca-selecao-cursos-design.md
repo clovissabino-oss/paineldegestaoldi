@@ -35,7 +35,7 @@ custo N do `conferirIds`).
 | Teto na tela | 30 cursos |
 | Cursos sem árvore | Listados, com "0 cap" e **caixa desabilitada** |
 | `published=false` | **Não filtra** — é informação, não exclusão |
-| Autores | **Sob demanda**, só ao marcar o curso |
+| Autores | Sob demanda ao marcar o curso — **adiado para a 2b** (ver nota abaixo) |
 | Termo mínimo | 3 caracteres |
 | Disparo | `tipo:"ids"` — **zero mudança no worker** |
 
@@ -162,7 +162,13 @@ Nome, capítulos, aulas, publicado, data de criação. A **descrição** entra c
 discreta **quando não for vazia** — medida: vazia em 27 de 30 cursos, e quando existe repete o
 nome. Custa zero incluir; não se deve contar com ela.
 
-### Autores sob demanda
+### Autores sob demanda — ADIADO PARA A 2b
+
+> ⚠ **Não foi entregue na 2a.** A decisão abaixo foi tomada e escrita neste spec, mas
+> **nenhuma task do plano a implementou** — falha de planejamento, pega só na revisão final da
+> branch (01/08). O Clovis optou por deixar para a **2b** em vez de atrasar o merge: a lista sai
+> com nome, capítulos, aulas, publicado e data, e o uso real vai dizer se o professor faz falta
+> na hora de escolher. O texto original fica abaixo porque o desenho segue válido.
 
 `authors_name` vem **`None` na listagem** mesmo com `include_authors_names=true`, e
 `structured_authors` **não vem** — só `authors` com UUIDs crus. (O projeto já sabia: sessão 6,

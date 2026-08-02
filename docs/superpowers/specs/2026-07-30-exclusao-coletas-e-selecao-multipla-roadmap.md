@@ -210,6 +210,13 @@ congela a seleção (curso criado entre o clique e a execução não entra).
 
 ## Entrega 2b — Separados, rótulos e selos
 
+**Herdado da 2a (01/08):** mostrar o **professor** de um curso ao marcá-lo na busca. Foi decidido
+e escrito no spec da 2a, mas nenhuma task o implementou — só apareceu na revisão final da branch,
+e o Clovis preferiu não atrasar o merge. O desenho está pronto em
+`2026-08-01-busca-selecao-cursos-design.md` (seção "Autores sob demanda"): `authors_name` vem
+**sempre null** na listagem, então o nome exige `GET /bo/ldi/courses/{id}` por curso — daí ser sob
+demanda, ao marcar, e não na lista inteira. `buscarNomeCursoLdi` já existe e serve.
+
 **A armadilha que define esta entrega:** `snapshot_atual` faz `distinct on (termo)`. Trinta pedidos
 separados com o **mesmo** rótulo viram trinta snapshots dos quais a web mostra **um** — 29
 invisíveis, silenciosamente. Solução: `montarRotulos(base, cursos)` (função pura, testável) gerando
