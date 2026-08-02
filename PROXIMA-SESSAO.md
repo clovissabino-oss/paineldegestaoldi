@@ -1,6 +1,6 @@
 # 🎬 Extrator LDI — Estado atual (norte da próxima sessão)
 
-_Última atualização: 30/07/2026 (sessão 11: exclusão de coleta pelo admin — entrega 1a)._
+_Última atualização: 01/08/2026 (sessão 12: busca com seleção múltipla de cursos — entrega 2a)._
 
 Este arquivo é o **ponto de partida** de qualquer nova sessão. Para o passo a passo
 de uso, veja o `TUTORIAL.md`. Para a visão do projeto, a memória do Claude
@@ -465,9 +465,9 @@ Duas features, quebradas em 4 entregas, nesta ordem: **1a → 2a → 1b → 2b**
 | # | Entrega | Estado |
 |---|---|---|
 | **1a** | Admin exclui uma coleta (lógica, sem VACUUM) | ✅ **no ar e aceita em produção (31/07)** |
-| 2a | Buscar termo → selecionar vários cursos → "coletar juntos" | **próxima a fazer** |
+| **2a** | Buscar termo → selecionar vários cursos → "coletar juntos" | ✅ **código pronto e revisado (01/08)** — falta merge + aceite |
 | 1b | VACUUM + checagem de espaço | planejada |
-| 2b | "Coletar separados" + rótulos + selos de reincidência | planejada |
+| 2b | "Coletar separados" + rótulos + selos + **autores na busca** | planejada |
 
 **A 1a foi construída em 30/07 (sessão 11) — ver abaixo. A próxima a fazer é a 2a.**
 
@@ -591,6 +591,96 @@ publicadas (sync falhou, é não-fatal) ocupam disco e **não aparecem** na list
 em nota. Fechar exige o worker publicar um inventário do SQLite. **Já é concreto:** o VPS tem
 `#1 TESTE-VPS-APAGAR` (783 blocos) e `#11 Área Fiscal` (0/0, coleta cancelada) ocupando disco
 sem nenhuma linha na tela.
+
+---
+
+## ✅ Sessão 12 (01/08): entrega 2a — buscar, selecionar e coletar juntos
+
+Spec: `docs\superpowers\specs\2026-08-01-busca-selecao-cursos-design.md`;
+plano: `docs\superpowers\plans\2026-08-01-busca-selecao-cursos.md`.
+Branch `feat/busca-selecao-cursos`, 8 commits, executada por **subagentes** (implementador +
+revisor por task, revisão final da branch em Opus).
+
+Na `/coleta`, o operador agora **busca por termo, vê a lista com o peso de cada curso
+(capítulos/aulas), marca vários e dispara uma coleta só** com um rótulo. Antes o disparo por
+termo era cego. O modo "termo inteiro" **continua existindo, rebaixado** — tem semântica que a
+seleção perde ("tudo que casar, inclusive o que for criado depois").
+
+### O spike derrubou 3 premissas do roadmap ANTES de custar código
+
+O roadmap mandava gastar 10 minutos com `curl` antes de codar. Rendeu:
+
+| Premissa | Medido em 01/08 |
+|---|---|
+| "testar se a API aceita reduzir a projeção" | **Não aceita.** 7 parâmetros, todos devolvem 2462,8 KB **byte-idêntico**; `fields=` dá HTTP 500 |
+| "paginar 3 páginas em série" | **3 páginas de "Direito" = 9,9 MB**, contra o limite de **4,5 MB** de resposta do Vercel — era inviável, não só pesado |
+| — | **`meta.total` mente**: devolve 127.309 (catálogo inteiro) em toda busca |
+
+Daí o desenho: **uma requisição `per_page=100`**, e o DTO montado no servidor **descarta a árvore**
+(29–49 KB por curso) antes de responder — ~200 bytes por curso chegam ao navegador.
+`podeHaverMais` sai de "a página veio cheia", única pista honesta.
+
+**Trava mais importante: termo com mínimo de 3 caracteres.** `search_term=` vazio devolve o
+catálogo inteiro **com as árvores**. A recusa acontece antes de qualquer acesso à rede
+(verificado em código pela revisão).
+
+### Números reais medidos (úteis para conferir a tela)
+
+| Termo | Encontrados | Com árvore | Publicados |
+|---|---|---|---|
+| Área Fiscal | 62 | 43 | 28 |
+| PRF | 70 | 66 | 49 |
+| BACEN | 100 (cheio) | 99 | 100 |
+
+**`published=false` NÃO filtra:** os cursos de 30/07 com 46 e 36 capítulos são rascunhos **cheios
+de conteúdo** — a montagem nova do LDI, que é o que interessa auditar. Cursos **sem árvore**
+aparecem com "0 cap" e **caixa desabilitada** (coletar geraria extração vazia — o VPS já tem uma:
+"Área Fiscal" #11, 0 cursos/0 blocos).
+
+**O disparo vira `tipo:"ids"`** → **zero mudança no worker**, sem refazer a busca pesada no VPS, e
+congela a seleção (curso criado entre o clique e a execução não entra).
+
+### Dois defeitos que estavam NO PLANO, não na execução
+
+1. **Vazamento de timer:** o código que o plano mandava escrever pulava o `clearTimeout` quando o
+   `fetch` falhava. Era *plan-mandated*, então virou decisão do Clovis: corrigimos a **raiz** nas
+   3 funções de `ldi.ts` com `finally`. Efeito colateral bom, notado na revisão final: os 20s
+   agora cobrem **também** o download dos 5 MB.
+2. **HTML inválido:** o `FormDisparo` era um `<form>` único e o componente novo traz o seu —
+   aninhados, o navegador descarta o interno e **o disparo do lote não funcionaria**. Pego na
+   leitura do arquivo antes do despacho; o seletor de modo saiu para fora do form e os modos
+   antigos ganharam `<input type="hidden" name="modo">`.
+
+### ⚠ Uma decisão que virou spec e NÃO virou entrega
+
+**Autores sob demanda** (mostrar o professor ao marcar o curso) foi decidido, escrito no spec em
+dois lugares — e **nenhuma task o implementou**. As revisões por task não pegaram (cada uma só
+olha o próprio brief); só a revisão final da branch viu, inclusive um comentário no código
+afirmando que o recurso existia. **Falha de planejamento, não de execução.** O Clovis optou por
+**adiar para a 2b** em vez de atrasar o merge; registrado no spec da 2a e no roadmap.
+
+### Estado verificado (não presumido)
+
+`tsc --noEmit` limpo · `npm run build` compilando · **8 checagens** novas em
+`web/checks/busca.check.ts` + 9 antigas verdes · **143 testes Python** intactos · bundle sem
+`service_role`, sem cookie e **sem `api.estrategia.com`** (prova de que a camada de rede não
+vazou para o cliente).
+
+A checagem que mais importa é a que garante que **a árvore não vai ao navegador** — e ela foi
+**provada discriminante**: com a árvore incluída de propósito, falha com "árvore vazou no DTO!".
+
+**⚠ Falta:** PR → `main` (o merge deploya no Vercel) e o aceite na tela publicada:
+1. Buscar "Área Fiscal" → conferir **62 encontrados · 43 com conteúdo**, "Governança de TI" e
+   "Informática" com 0 cap e caixa desabilitada.
+2. **Aba Network: a resposta da action tem de vir em KB, não MB** — é a prova de que a árvore
+   ficou no servidor.
+3. Buscar "Direito" → aviso "a busca veio cheia, pode haver mais".
+4. Marcar 2 cursos, rotular, coletar juntos → **um** pedido `ids` → um snapshot com os dois.
+5. Conferir que o modo "termo inteiro" continua funcionando como antes.
+
+**Worker do VPS NÃO precisa de `git pull`** — o disparo usa `tipo:"ids"`, que ele já sabe fazer, e
+nenhum módulo alcançado por import do `coletor_ldi.py` mudou (afirmação seguindo a cadeia de
+imports, não os nomes dos arquivos).
 
 ---
 
