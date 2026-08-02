@@ -27,7 +27,16 @@ function Linha({
         <input
           type="checkbox" checked={marcado} disabled={!curso.selecionavel}
           onChange={() => aoMarcar(curso.id)}
-          title={curso.selecionavel ? "" : "Curso sem capítulos — coletar geraria extração vazia"}
+          title={
+            curso.selecionavel
+              ? `Selecionar curso ${curso.nome}`
+              : "Curso sem capítulos — coletar geraria extração vazia"
+          }
+          aria-label={
+            curso.selecionavel
+              ? `Selecionar curso ${curso.nome}`
+              : `Curso ${curso.nome} sem capítulos — coletar geraria extração vazia`
+          }
         />
       </td>
       <td style={celula}>
