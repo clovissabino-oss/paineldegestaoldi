@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import sqlite3
+import sys
 from collections import namedtuple
 
 import requests
@@ -175,10 +176,14 @@ _ESPERA_CHECAGEM_MS = 300
 
 
 def banco_em_uso(con):
-    """True se outro processo segura o banco (painel aberto, coleta rodando).
+    """True se há ESCRITA em andamento neste banco agora — não detecta leitor.
 
-    Testa com BEGIN IMMEDIATE e desfaz na hora — é o mesmo lock que o DELETE
-    pegaria, mas checado ANTES, quando ainda não há nada a reverter."""
+    Testa com BEGIN IMMEDIATE, que pega o lock de ESCRITA (o mesmo que o
+    DELETE pegaria) e desfaz na hora — checado ANTES, quando ainda não há
+    nada a reverter. Em modo WAL um leitor com transação aberta NÃO bloqueia
+    isso (medido: com leitor solto, devolve False) — só outro escritor
+    bloqueia. As mensagens que usam esta função não devem prometer mais do
+    que isso."""
     anterior = con.execute("PRAGMA busy_timeout").fetchone()[0]
     con.execute(f"PRAGMA busy_timeout={_ESPERA_CHECAGEM_MS}")
     try:
@@ -190,6 +195,15 @@ def banco_em_uso(con):
         return False
     finally:
         con.execute(f"PRAGMA busy_timeout={anterior}")
+
+
+# Texto das duas checagens de banco_em_uso() no CLI (--excluir e --compactar).
+# Reflete o que a função de fato testa: escrita em andamento, não leitor —
+# ver a docstring de banco_em_uso.
+_MSG_ESCRITA_EM_ANDAMENTO = (
+    "há escrita em andamento neste banco agora (esta checagem detecta "
+    "escritor, não leitor — painel.py aberto só para leitura não é pego). "
+    "Aguarde terminar e tente de novo.")
 
 
 def espaco_para_vacuum(caminho):
@@ -218,7 +232,14 @@ def compactar(con, caminho):
     antes = os.path.getsize(caminho)
     con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     con.execute("VACUUM")            # fora de transação (isolation_level='' do projeto)
-    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    busy, _log, _checkpointed = con.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    if busy:
+        # busy=1: outra conexão está lendo e o SQLite não pôde truncar o WAL
+        # agora. O VACUUM já rodou (não é erro) — só a consolidação final
+        # ficou pendente, e o arquivo principal ainda não reflete o ganho.
+        print("  [aviso] compactação concluída, mas a consolidação final ficou "
+              "pendente — há outra conexão lendo o banco agora. O espaço "
+              "aparece no disco quando essa conexão fechar.")
     return antes, os.path.getsize(caminho)
 
 
@@ -290,6 +311,25 @@ def relatorio(termo, extracao_local, apagadas, pendencias, mais_recente, vacuum=
     return " ".join(partes)
 
 
+def _texto_aviso_publicada(publicada):
+    """Aviso sobre o estado 'publicada?' do alvo escolhido para --excluir, ou
+    None quando não há nada a avisar (não publicada).
+
+    `publicada` tem TRÊS estados (ver listar_extracoes/publicadas_no_supabase):
+    True, False e None (Supabase fora do ar, sem credencial, blip de rede).
+    A confirmação do --excluir é POR TERMO, e duas coletas do mesmo termo
+    (mesmo banco ou bancos diferentes) não se distinguem só por ele — este
+    aviso é o único sinal, então None não pode ficar mudo."""
+    if publicada is True:
+        return ("⚠ Esta coleta está publicada na web — o snapshot continua lá, "
+                "mas some a origem local (recoleta/diff futuros).")
+    if publicada is None:
+        return ("⚠ Não foi possível saber se esta coleta está publicada na web "
+                "(Supabase fora do ar, sem credencial, ou falha de rede) — "
+                "confira na tela antes de seguir.")
+    return None
+
+
 def _caminho_banco():
     """Mesmo caminho que o coletor e o painel usam (respeita o config.json)."""
     import extrator_ldi as _e
@@ -322,7 +362,7 @@ def main():
                         help="roda VACUUM e devolve o espaço ao disco")
     args = parser.parse_args()
 
-    if not (args.listar or args.excluir or args.compactar):
+    if not (args.listar or args.excluir is not None or args.compactar):
         parser.print_help()
         return
 
@@ -333,23 +373,22 @@ def main():
         print(f" EXCLUSÃO LOCAL  |  banco: {caminho}")
         print("=" * 66)
 
-        if args.listar or args.excluir:
+        if args.listar or args.excluir is not None:
             linhas = listar_extracoes(con, publicadas_no_supabase())
 
         if args.listar:
             _imprimir_listagem(linhas)
-            if not args.excluir and not args.compactar:
+            if args.excluir is None and not args.compactar:
                 return
 
-        if args.excluir:
+        if args.excluir is not None:
             alvo = next((l for l in linhas if l["id"] == args.excluir), None)
             if alvo is None:
                 raise _falhar(f"não existe extração #{args.excluir} neste banco.")
             if not args.listar:
                 _imprimir_listagem([alvo])
             if banco_em_uso(con):
-                raise _falhar("o banco está em uso por outro processo "
-                              "(painel.py aberto? coleta rodando?). Feche e tente de novo.")
+                raise _falhar(_MSG_ESCRITA_EM_ANDAMENTO)
             if args.compactar:
                 cabe, precisa, livre = espaco_para_vacuum(caminho)
                 if not cabe:
@@ -359,10 +398,16 @@ def main():
                         "Nada foi apagado.")
             print(f"\n  Isto apaga a extração #{alvo['id']} ({alvo['blocos']} blocos) "
                   "do banco local. NÃO tem volta.")
-            if alvo["publicada"]:
-                print("  ⚠ Esta coleta está publicada na web — o snapshot continua lá, "
-                      "mas some a origem local (recoleta/diff futuros).")
-            digitado = input(f"  Digite {alvo['termo']} para confirmar: ").strip()
+            aviso = _texto_aviso_publicada(alvo["publicada"])
+            if aviso:
+                print(f"  {aviso}")
+            if not sys.stdin.isatty():
+                raise _falhar(
+                    "a confirmação exige um terminal interativo — exclusão não "
+                    "deve ser automatizada por pipe ou agendamento.")
+            digitado = input(
+                f"  Digite {alvo['termo']} para confirmar a exclusão da "
+                f"#{alvo['id']} de {alvo['iniciada_em']}: ").strip()
             if digitado != alvo["termo"]:
                 raise _falhar("o termo digitado não confere. Nada foi apagado.")
 
@@ -378,8 +423,7 @@ def main():
 
         if args.compactar:
             if banco_em_uso(con):
-                raise _falhar("o banco está em uso por outro processo. "
-                              "Feche o painel/coleta e tente de novo.")
+                raise _falhar(_MSG_ESCRITA_EM_ANDAMENTO)
             cabe, precisa, livre = espaco_para_vacuum(caminho)
             if not cabe:
                 raise _falhar(f"espaço insuficiente: precisa de {precisa/1048576:.0f} MB "

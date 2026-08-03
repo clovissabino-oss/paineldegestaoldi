@@ -343,6 +343,70 @@ class TestCompactar(unittest.TestCase):
         self.assertFalse(exclusao_coleta.banco_em_uso(self.con))
 
 
+class TestTextoAvisoPublicada(unittest.TestCase):
+    """Item 1 do fix wave: `publicada` tem TRÊS estados e o None não pode
+    ficar mudo — é o único sinal que distingue duas coletas do mesmo termo
+    quando o Supabase está fora do ar."""
+
+    def test_publicada_true_avisa_que_esta_na_web(self):
+        texto = exclusao_coleta._texto_aviso_publicada(True)
+        self.assertIn("publicada na web", texto)
+
+    def test_publicada_false_nao_avisa(self):
+        self.assertIsNone(exclusao_coleta._texto_aviso_publicada(False))
+
+    def test_publicada_none_avisa_que_nao_deu_para_saber(self):
+        texto = exclusao_coleta._texto_aviso_publicada(None)
+        self.assertIsNotNone(texto)
+        self.assertIn("Supabase", texto)
+        self.assertIn("confira na tela", texto)
+
+
+class TestMainExcluirZeroECliInterativo(unittest.TestCase):
+    """Itens 4 e 5 do fix wave, exercitados via main() contra um banco
+    TEMPORÁRIO (nunca o conteudo.db de produção)."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.caminho = os.path.join(self.dir.name, "conteudo.db")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    @patch("sys.argv", ["exclusao_coleta.py", "--excluir", "0"])
+    @patch("exclusao_coleta._caminho_banco")
+    def test_excluir_zero_nao_e_ignorado_em_silencio(self, mock_caminho):
+        """Antes do fix, `if args.excluir:` era falsy para 0 e o pedido
+        desaparecia sem uma palavra. Com `is not None`, ele chega até a
+        checagem de existência e falha explicando o quê."""
+        banco_conteudo.abrir(self.caminho).close()
+        mock_caminho.return_value = self.caminho
+        with self.assertRaises(SystemExit) as ctx:
+            exclusao_coleta.main()
+        self.assertIn("#0", str(ctx.exception))
+
+    @patch("sys.stdin")
+    @patch("sys.argv", ["exclusao_coleta.py", "--excluir", "1"])
+    @patch("exclusao_coleta._caminho_banco")
+    def test_confirmacao_recusa_stdin_nao_interativo(self, mock_caminho, mock_stdin):
+        """O spec recusou --sim/--forcar de propósito; sem esta checagem,
+        `echo BACEN | py exclusao_coleta.py --excluir 1` apagaria sem
+        humano nenhum na tela."""
+        con = banco_conteudo.abrir(self.caminho)
+        banco_conteudo.iniciar_extracao(con, "BACEN", "concursos")
+        con.close()
+        mock_caminho.return_value = self.caminho
+        mock_stdin.isatty.return_value = False
+        with self.assertRaises(SystemExit) as ctx:
+            exclusao_coleta.main()
+        self.assertIn("terminal interativo", str(ctx.exception))
+        # nada foi apagado: a extração 1 continua existindo
+        con = banco_conteudo.abrir(self.caminho)
+        self.assertEqual(
+            con.execute("SELECT COUNT(*) FROM extracoes").fetchone()[0], 1)
+        con.close()
+
+
 class TestRelatorio(unittest.TestCase):
     def test_relatorio_completo(self):
         texto = exclusao_coleta.relatorio(
