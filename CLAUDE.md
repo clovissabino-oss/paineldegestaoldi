@@ -31,6 +31,9 @@ py coletor_ldi.py [--termo X] [--continuar] [--com-videos] [--agendado]
 py regras_qualidade.py [--extracao N]              # motor de pendências avulso (baixa automática)
 py painel.py [--sem-navegador]                     # painel em http://127.0.0.1:8766
 #   / = inventário · /avaliacao = planilha de avaliação por disciplina (CSV/print)
+py exclusao_coleta.py --listar                     # coletas do conteudo.db LOCAL (+ quais estão na web)
+py exclusao_coleta.py --excluir N [--compactar]    # apaga a extração N daqui e devolve o disco
+#   só mexe no arquivo local — NÃO toca no Supabase (a /admin tem tela própria p/ isso)
 py -m unittest discover -s tests                   # testes (parse, banco, coletor, regras, painel)
 cd web; node --experimental-strip-types checks/coleta.check.ts   # checagem das puras do TS
 

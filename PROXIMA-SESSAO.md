@@ -1,6 +1,6 @@
 # 🎬 Extrator LDI — Estado atual (norte da próxima sessão)
 
-_Última atualização: 01/08/2026 (sessão 12: busca com seleção múltipla de cursos — entrega 2a)._
+_Última atualização: 03/08/2026 (sessão 13: CLI de exclusão local + compactação)._
 
 Este arquivo é o **ponto de partida** de qualquer nova sessão. Para o passo a passo
 de uso, veja o `TUTORIAL.md`. Para a visão do projeto, a memória do Claude
@@ -466,8 +466,8 @@ Duas features, quebradas em 4 entregas, nesta ordem: **1a → 2a → 1b → 2b**
 |---|---|---|
 | **1a** | Admin exclui uma coleta (lógica, sem VACUUM) | ✅ **no ar e aceita em produção (31/07)** |
 | **2a** | Buscar termo → selecionar vários cursos → "coletar juntos" | ✅ **código pronto e revisado (01/08)** — falta merge + aceite |
-| 1b | VACUUM + checagem de espaço | planejada |
-| 2b | "Coletar separados" + rótulos + selos + **autores na busca** | planejada |
+| ~~1b~~ | ~~VACUUM no VPS pela fila~~ | ❌ **cancelada** — o VPS tem 41 MB e 88 GB livres; virou o CLI local (sessão 13) |
+| 2b | "Coletar separados" + rótulos + selos + **autores na busca** | **próxima a fazer** |
 
 **A 1a foi construída em 30/07 (sessão 11) — ver abaixo. A próxima a fazer é a 2a.**
 
@@ -575,8 +575,8 @@ refazer o pedido pela tela. Coberto por `test_mesmo_numero_e_mesmo_termo_mas_out
 **Consequência que muda o alvo do aceite:** as duas duplicatas do BACEN (64.838 blocos cada)
 estão **neste notebook**, não no VPS. O worker só enxerga o disco do VPS, então a exclusão pela
 web nunca vai liberar esse espaço — ela apaga o snapshot e reporta "a extração já não existia no
-conteudo.db". Para limpar as duplicatas locais **falta um caminho de linha de comando** (não
-construído; decidir se vale).
+conteudo.db". Para limpar as duplicatas locais era preciso um caminho de linha de comando —
+**construído na sessão 13** (`py exclusao_coleta.py --listar/--excluir N/--compactar`).
 
 **Outros dois defeitos que este teste expôs, corrigidos junto:**
 - `mensagem: "1"` na fila — o `extrator_ldi.falha()` faz `print(msg)` e levanta `SystemExit(1)`,
@@ -681,6 +681,69 @@ A checagem que mais importa é a que garante que **a árvore não vai ao navegad
 **Worker do VPS NÃO precisa de `git pull`** — o disparo usa `tipo:"ids"`, que ele já sabe fazer, e
 nenhum módulo alcançado por import do `coletor_ldi.py` mudou (afirmação seguindo a cadeia de
 imports, não os nomes dos arquivos).
+
+---
+
+## ✅ Sessão 13 (03/08): CLI de exclusão local + compactação (substituiu a 1b)
+
+Spec: `docs\superpowers\specs\2026-08-03-cli-exclusao-local-design.md`;
+plano: `docs\superpowers\plans\2026-08-03-cli-exclusao-local.md`.
+Branch `feat/cli-exclusao-local`, executada por subagentes. **143 → 153 testes.**
+
+```powershell
+py exclusao_coleta.py --listar                  # o que tem no banco daqui + quais estão na web
+py exclusao_coleta.py --excluir 1 --compactar   # apaga a #1 e devolve o disco
+```
+
+### ⚠ A 1b do roadmap resolvia um problema que não existe
+
+O roadmap justificava o VACUUM com *"o `conteudo.db` já está em 242 MB"* — mas esse número era
+**deste notebook**. O banco que a 1b compactaria é o **do VPS**, e ele tem **41,2 MB num disco
+com 88 GB livres** (medido em 03/08 por SSH). O VACUUM lá devolveria uma dezena de MB.
+
+O lixo está aqui: os dois BACEN idênticos são **129.676 dos 182.858 blocos — 71% do banco** — e a
+exclusão pela web não os alcança (o worker só vê o disco do VPS). Por isso o CLI, que era item de
+backlog, virou a entrega, com o VACUUM embutido. **Compactar sem apagar não recupera nada.**
+
+### Três medições que definiram o desenho (não re-derivar)
+
+| Medição | Consequência |
+|---|---|
+| Pico do VACUUM = **1,5×** o banco (62,1 MB para um de 41,3 MB) | `FOLGA_VACUUM = 1.5`; 1× não basta — em WAL o VACUUM escreve tudo no WAL antes de consolidar |
+| Sem `wal_checkpoint(TRUNCATE)` **depois**, o ganho não aparece (41,5 MB → 20,7 MB só após) | O checkpoint final não é opcional |
+| `freelist_count` **subestima**: reportou 0 MB com metade dos dados apagados, e o VACUUM ainda recuperou 50% | O CLI **não promete** ganho antes de rodar; relata antes → depois |
+
+Também medido: `BEGIN IMMEDIATE` espera **5,54s** com o `busy_timeout` padrão antes de admitir que
+o banco está travado → `_ESPERA_CHECAGEM_MS = 300` (0,41s).
+
+### O que o CLI NÃO faz: tocar no Supabase
+
+Deliberado. Um comando rodado aqui não pode mudar o que o time vê — a `/admin` tem tela própria.
+Daí a coluna **"publicada?"** no `--listar`: ela responde a pergunta que decide o risco. Sem
+Supabase acessível a coluna vira `?` e a listagem **continua** (listar é leitura e tem de
+funcionar offline).
+
+### O estado real do banco daqui (03/08)
+
+| # | termo | quando | blocos | publicada? |
+|---|---|---|---|---|
+| 1 | BACEN | 06/07 18:30 | 64.838 | **não** ← o alvo |
+| 2 | BACEN | 06/07 23:56 | 64.838 | sim |
+| 3 | PRF | 20/07 16:07 | 51.983 | sim |
+| 5 | Coromandel | 20/07 20:57 | 1.199 | não |
+
+**A #1 é a duplicata a apagar:** mesmo conteúdo da #2, mais antiga, e **não publicada**.
+
+**⚠ Falta (só o Clovis pode fazer):**
+1. Fechar o painel/visualizador se estiverem abertos (a trava recusa, e é para recusar).
+2. `py exclusao_coleta.py --excluir 1 --compactar`, digitando `BACEN`.
+3. Conferir com o Explorer que o arquivo encolheu (231 MB → ~100 MB esperado).
+4. `py painel.py` — PRF, Coromandel e o BACEN #2 íntegros.
+5. Conferir na web que **nada mudou** — é o ponto do "não toca no Supabase".
+
+**Nenhum deploy.** Sem worker, sem web, sem migração — a revisão final confirmou que a branch é
+**puramente aditiva** para o `worker_coleta.py` (as funções que ele importa estão byte a byte
+iguais), então o VPS não precisa nem de `git pull`.
 
 ---
 
