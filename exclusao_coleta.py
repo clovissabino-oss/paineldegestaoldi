@@ -14,6 +14,9 @@
 ============================================================
 """
 import json
+import os
+import shutil
+import sqlite3
 from collections import namedtuple
 
 import requests
@@ -154,6 +157,67 @@ def apagar_extracao(con, extracao_id):
             cur = con.execute(f"DELETE FROM {tabela} WHERE {coluna}=?", (extracao_id,))
             apagadas[tabela] = cur.rowcount
     return apagadas
+
+
+# Pico de disco do VACUUM, MEDIDO em 03/08: 62,1 MB para um banco de 41,3 MB.
+# Em WAL o VACUUM escreve o resultado no WAL antes de consolidar, então o pico é
+# maior que o arquivo final — 1,0x NÃO basta.
+FOLGA_VACUUM = 1.5
+
+
+# Espera curta só para a CHECAGEM de lock. Com o busy_timeout padrão (5s), o
+# BEGIN IMMEDIATE fica 5,5s parado antes de admitir que o banco está ocupado
+# (medido) — o CLI pareceria travado. 300ms basta para distinguir "ocupado" de
+# "livre" e é restaurado logo em seguida.
+_ESPERA_CHECAGEM_MS = 300
+
+
+def banco_em_uso(con):
+    """True se outro processo segura o banco (painel aberto, coleta rodando).
+
+    Testa com BEGIN IMMEDIATE e desfaz na hora — é o mesmo lock que o DELETE
+    pegaria, mas checado ANTES, quando ainda não há nada a reverter."""
+    anterior = con.execute("PRAGMA busy_timeout").fetchone()[0]
+    con.execute(f"PRAGMA busy_timeout={_ESPERA_CHECAGEM_MS}")
+    try:
+        con.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError:
+        return True
+    else:
+        con.rollback()
+        return False
+    finally:
+        con.execute(f"PRAGMA busy_timeout={anterior}")
+
+
+def espaco_para_vacuum(caminho):
+    """(cabe, precisa_bytes, livre_bytes) para compactar `caminho`.
+
+    Checar ANTES de apagar: faltando espaço, falha limpa e retentável é mais
+    previsível que 'apagou mas não compactou'."""
+    tamanho = os.path.getsize(caminho) if os.path.exists(caminho) else 0
+    precisa = int(tamanho * FOLGA_VACUUM)
+    # Desempacota por posição (total, usado, livre) em vez de usar o atributo
+    # `.free` do namedtuple: os testes mockam disk_usage devolvendo uma tupla
+    # comum, que não tem esse atributo.
+    _, _, livre = shutil.disk_usage(os.path.dirname(os.path.abspath(caminho)))
+    return livre >= precisa, precisa, livre
+
+
+def compactar(con, caminho):
+    """Roda VACUUM e devolve (bytes_antes, bytes_depois) do arquivo principal.
+
+    O checkpoint DEPOIS não é opcional: medido, o conjunto ainda ocupava
+    41,5 MB logo após o VACUUM e só caiu para 20,7 MB depois dele — sem esse
+    passo o comando diz "compactado" e o `ls` mostra o mesmo tamanho.
+
+    Não promete ganho antes de rodar: `freelist_count` reportou 0 MB num banco
+    com metade dos dados apagados que o VACUUM ainda reduziu à metade."""
+    antes = os.path.getsize(caminho)
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    con.execute("VACUUM")            # fora de transação (isolation_level='' do projeto)
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return antes, os.path.getsize(caminho)
 
 
 def publicadas_no_supabase():

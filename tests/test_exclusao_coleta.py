@@ -252,6 +252,89 @@ class TestPublicadasNoSupabase(unittest.TestCase):
         self.assertEqual(len(pub), 1)   # linha sem data é descartada
 
 
+class TestCompactar(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.caminho = os.path.join(self.dir.name, "x", "conteudo.db")
+        self.con = banco_conteudo.abrir(self.caminho)
+
+    def tearDown(self):
+        self.con.close()
+        self.dir.cleanup()
+
+    def _encher(self, n=40000):
+        eid = banco_conteudo.iniciar_extracao(self.con, "BACEN", "concursos")
+        with self.con:
+            self.con.executemany(
+                "INSERT INTO blocos(extracao_id,item_id,bloco_id,tipo,titulo,meta) "
+                "VALUES(?,?,?,?,?,?)",
+                [(eid, f"i{i}", f"b{i}", "question", "t" * 60, "{}" + "z" * 120)
+                 for i in range(n)])
+        self.con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        return eid
+
+    def _tamanho(self):
+        return sum(os.path.getsize(self.caminho + s)
+                   for s in ("", "-wal", "-shm")
+                   if os.path.exists(self.caminho + s))
+
+    def test_vacuum_encolhe_o_arquivo_de_verdade(self):
+        """O teste que prova a entrega. Sem ele, 'compactado' é só uma mensagem.
+        Inclui o checkpoint DEPOIS do VACUUM — sem ele o ganho não aparece
+        (medido: 41,5 MB logo após o VACUUM, 20,7 MB só depois do checkpoint)."""
+        eid = self._encher()
+        exclusao_coleta.apagar_extracao(self.con, eid)
+        antes, depois = exclusao_coleta.compactar(self.con, self.caminho)
+        self.assertLess(depois, antes)
+        self.assertLess(self._tamanho(), antes * 0.6)
+
+    def test_sem_compactar_o_arquivo_nao_encolhe(self):
+        """Discrimina o teste acima: só apagar não devolve disco. Se este falhar
+        (arquivo encolheu sozinho), o teste de cima não prova nada."""
+        eid = self._encher()
+        antes = self._tamanho()
+        exclusao_coleta.apagar_extracao(self.con, eid)
+        self.con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        self.assertGreater(self._tamanho(), antes * 0.9)
+
+    def test_espaco_insuficiente_recusa(self):
+        self._encher(2000)
+        with patch("exclusao_coleta.shutil.disk_usage") as mock_du:
+            mock_du.return_value = (100, 99, 1)   # 1 byte livre
+            cabe, precisa, livre = exclusao_coleta.espaco_para_vacuum(self.caminho)
+        self.assertFalse(cabe)
+        self.assertEqual(livre, 1)
+        self.assertGreater(precisa, 0)
+
+    def test_espaco_exige_folga_de_uma_vez_e_meia(self):
+        """1,0x NÃO basta: medido, o pico real é 1,50x (o WAL cresce até o
+        tamanho dos dados vivos enquanto o VACUUM roda)."""
+        self._encher(2000)
+        tam = os.path.getsize(self.caminho)
+        with patch("exclusao_coleta.shutil.disk_usage") as mock_du:
+            mock_du.return_value = (0, 0, int(tam * 1.1))
+            cabe, _, _ = exclusao_coleta.espaco_para_vacuum(self.caminho)
+        self.assertFalse(cabe)
+        with patch("exclusao_coleta.shutil.disk_usage") as mock_du:
+            mock_du.return_value = (0, 0, int(tam * 2))
+            cabe, _, _ = exclusao_coleta.espaco_para_vacuum(self.caminho)
+        self.assertTrue(cabe)
+
+    def test_banco_em_uso_detecta_escrita_de_outra_conexao(self):
+        """O painel.py aberto ou uma coleta rodando seguram o arquivo. Detectar
+        ANTES evita o erro no meio da transação — que reverteria, mas depois de
+        o usuário achar que já tinha apagado."""
+        self.assertFalse(exclusao_coleta.banco_em_uso(self.con))
+        outra = sqlite3.connect(self.caminho)
+        try:
+            outra.execute("BEGIN EXCLUSIVE")
+            self.assertTrue(exclusao_coleta.banco_em_uso(self.con))
+        finally:
+            outra.rollback()
+            outra.close()
+        self.assertFalse(exclusao_coleta.banco_em_uso(self.con))
+
+
 class TestRelatorio(unittest.TestCase):
     def test_relatorio_completo(self):
         texto = exclusao_coleta.relatorio(
