@@ -4,7 +4,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import banco_conteudo
@@ -207,6 +207,204 @@ class TestApagarExtracao(unittest.TestCase):
         self.assertEqual(painel.dados_do_snapshot(self.con)["extracao"]["id"], eid2)
         exclusao_coleta.apagar_extracao(self.con, eid2)
         self.assertEqual(painel.dados_do_snapshot(self.con)["extracao"]["id"], eid1)
+
+    def test_listar_marca_publicada_e_aceita_desconhecido(self):
+        """A coluna 'publicada?' é o que evita apagar a origem de uma coleta que a
+        web ainda usa. Sem rede (publicadas=None) a listagem NÃO pode quebrar —
+        listar é leitura e tem de funcionar offline."""
+        eid1 = self._nova()
+        eid2 = self._nova("PRF")
+        data1 = self._data(eid1)
+        linhas = exclusao_coleta.listar_extracoes(
+            self.con, {("BACEN", data1[:19])})
+        por_id = {l["id"]: l for l in linhas}
+        self.assertIs(por_id[eid1]["publicada"], True)
+        self.assertIs(por_id[eid2]["publicada"], False)
+        self.assertEqual(por_id[eid1]["termo"], "BACEN")
+        self.assertGreater(por_id[eid1]["blocos"], 0)
+        # sem informação do Supabase: publicada = None (a tela mostra "?")
+        linhas = exclusao_coleta.listar_extracoes(self.con, None)
+        self.assertTrue(all(l["publicada"] is None for l in linhas))
+
+
+class TestPublicadasNoSupabase(unittest.TestCase):
+    @patch("exclusao_coleta.sync_supabase.esta_configurado", return_value=False)
+    def test_sem_credencial_devolve_none(self, _):
+        self.assertIsNone(exclusao_coleta.publicadas_no_supabase())
+
+    @patch("exclusao_coleta.requests.get", side_effect=Exception("rede fora"))
+    @patch("exclusao_coleta.sync_supabase._config", return_value=("http://x", "k"))
+    @patch("exclusao_coleta.sync_supabase.esta_configurado", return_value=True)
+    def test_rede_fora_devolve_none_sem_levantar(self, *_):
+        """Listar é leitura: rede fora vira '?' na coluna, nunca um traceback."""
+        self.assertIsNone(exclusao_coleta.publicadas_no_supabase())
+
+    @patch("exclusao_coleta.sync_supabase._config", return_value=("http://x", "k"))
+    @patch("exclusao_coleta.sync_supabase.esta_configurado", return_value=True)
+    @patch("exclusao_coleta.requests.get")
+    def test_normaliza_a_data_para_19_caracteres(self, mock_get, *_):
+        mock_get.return_value = MagicMock(
+            raise_for_status=lambda: None,
+            json=lambda: [{"termo": "BACEN", "iniciada_em": "2026-07-06T23:56:22+00:00"},
+                          {"termo": "PRF", "iniciada_em": None}])
+        pub = exclusao_coleta.publicadas_no_supabase()
+        self.assertIn(("BACEN", "2026-07-06T23:56:22"), pub)
+        self.assertEqual(len(pub), 1)   # linha sem data é descartada
+
+    @patch("exclusao_coleta.sync_supabase._config",
+           side_effect=SystemExit("faltam SUPABASE_URL e SUPABASE_SERVICE_KEY"))
+    @patch("exclusao_coleta.sync_supabase.esta_configurado", return_value=True)
+    def test_config_incompleta_devolve_none(self, *_):
+        """SystemExit herda de BaseException, não de Exception — um `except
+        Exception` sozinho deixaria a listagem quebrar com config pela metade."""
+        self.assertIsNone(exclusao_coleta.publicadas_no_supabase())
+
+
+class TestCompactar(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.caminho = os.path.join(self.dir.name, "x", "conteudo.db")
+        self.con = banco_conteudo.abrir(self.caminho)
+
+    def tearDown(self):
+        self.con.close()
+        self.dir.cleanup()
+
+    def _encher(self, n=40000):
+        eid = banco_conteudo.iniciar_extracao(self.con, "BACEN", "concursos")
+        with self.con:
+            self.con.executemany(
+                "INSERT INTO blocos(extracao_id,item_id,bloco_id,tipo,titulo,meta) "
+                "VALUES(?,?,?,?,?,?)",
+                [(eid, f"i{i}", f"b{i}", "question", "t" * 60, "{}" + "z" * 120)
+                 for i in range(n)])
+        self.con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        return eid
+
+    def _tamanho(self):
+        return sum(os.path.getsize(self.caminho + s)
+                   for s in ("", "-wal", "-shm")
+                   if os.path.exists(self.caminho + s))
+
+    def test_vacuum_encolhe_o_arquivo_de_verdade(self):
+        """O teste que prova a entrega. Sem ele, 'compactado' é só uma mensagem.
+        Inclui o checkpoint DEPOIS do VACUUM — sem ele o ganho não aparece
+        (medido: 41,5 MB logo após o VACUUM, 20,7 MB só depois do checkpoint)."""
+        eid = self._encher()
+        exclusao_coleta.apagar_extracao(self.con, eid)
+        antes, depois = exclusao_coleta.compactar(self.con, self.caminho)
+        self.assertLess(depois, antes)
+        self.assertLess(self._tamanho(), antes * 0.6)
+
+    def test_sem_compactar_o_arquivo_nao_encolhe(self):
+        """Discrimina o teste acima: só apagar não devolve disco. Se este falhar
+        (arquivo encolheu sozinho), o teste de cima não prova nada."""
+        eid = self._encher()
+        antes = self._tamanho()
+        exclusao_coleta.apagar_extracao(self.con, eid)
+        self.con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        self.assertGreater(self._tamanho(), antes * 0.9)
+
+    def test_espaco_insuficiente_recusa(self):
+        self._encher(2000)
+        with patch("exclusao_coleta.shutil.disk_usage") as mock_du:
+            mock_du.return_value = (100, 99, 1)   # 1 byte livre
+            cabe, precisa, livre = exclusao_coleta.espaco_para_vacuum(self.caminho)
+        self.assertFalse(cabe)
+        self.assertEqual(livre, 1)
+        self.assertGreater(precisa, 0)
+
+    def test_espaco_exige_folga_de_uma_vez_e_meia(self):
+        """1,0x NÃO basta: medido, o pico real é 1,50x (o WAL cresce até o
+        tamanho dos dados vivos enquanto o VACUUM roda)."""
+        self._encher(2000)
+        tam = os.path.getsize(self.caminho)
+        with patch("exclusao_coleta.shutil.disk_usage") as mock_du:
+            mock_du.return_value = (0, 0, int(tam * 1.1))
+            cabe, _, _ = exclusao_coleta.espaco_para_vacuum(self.caminho)
+        self.assertFalse(cabe)
+        with patch("exclusao_coleta.shutil.disk_usage") as mock_du:
+            mock_du.return_value = (0, 0, int(tam * 2))
+            cabe, _, _ = exclusao_coleta.espaco_para_vacuum(self.caminho)
+        self.assertTrue(cabe)
+
+    def test_banco_em_uso_detecta_escrita_de_outra_conexao(self):
+        """O painel.py aberto ou uma coleta rodando seguram o arquivo. Detectar
+        ANTES evita o erro no meio da transação — que reverteria, mas depois de
+        o usuário achar que já tinha apagado."""
+        self.assertFalse(exclusao_coleta.banco_em_uso(self.con))
+        outra = sqlite3.connect(self.caminho)
+        try:
+            outra.execute("BEGIN EXCLUSIVE")
+            self.assertTrue(exclusao_coleta.banco_em_uso(self.con))
+        finally:
+            outra.rollback()
+            outra.close()
+        self.assertFalse(exclusao_coleta.banco_em_uso(self.con))
+
+
+class TestTextoAvisoPublicada(unittest.TestCase):
+    """Item 1 do fix wave: `publicada` tem TRÊS estados e o None não pode
+    ficar mudo — é o único sinal que distingue duas coletas do mesmo termo
+    quando o Supabase está fora do ar."""
+
+    def test_publicada_true_avisa_que_esta_na_web(self):
+        texto = exclusao_coleta._texto_aviso_publicada(True)
+        self.assertIn("publicada na web", texto)
+
+    def test_publicada_false_nao_avisa(self):
+        self.assertIsNone(exclusao_coleta._texto_aviso_publicada(False))
+
+    def test_publicada_none_avisa_que_nao_deu_para_saber(self):
+        texto = exclusao_coleta._texto_aviso_publicada(None)
+        self.assertIsNotNone(texto)
+        self.assertIn("Supabase", texto)
+        self.assertIn("confira na tela", texto)
+
+
+class TestMainExcluirZeroECliInterativo(unittest.TestCase):
+    """Itens 4 e 5 do fix wave, exercitados via main() contra um banco
+    TEMPORÁRIO (nunca o conteudo.db de produção)."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.caminho = os.path.join(self.dir.name, "conteudo.db")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    @patch("sys.argv", ["exclusao_coleta.py", "--excluir", "0"])
+    @patch("exclusao_coleta._caminho_banco")
+    def test_excluir_zero_nao_e_ignorado_em_silencio(self, mock_caminho):
+        """Antes do fix, `if args.excluir:` era falsy para 0 e o pedido
+        desaparecia sem uma palavra. Com `is not None`, ele chega até a
+        checagem de existência e falha explicando o quê."""
+        banco_conteudo.abrir(self.caminho).close()
+        mock_caminho.return_value = self.caminho
+        with self.assertRaises(SystemExit) as ctx:
+            exclusao_coleta.main()
+        self.assertIn("#0", str(ctx.exception))
+
+    @patch("sys.stdin")
+    @patch("sys.argv", ["exclusao_coleta.py", "--excluir", "1"])
+    @patch("exclusao_coleta._caminho_banco")
+    def test_confirmacao_recusa_stdin_nao_interativo(self, mock_caminho, mock_stdin):
+        """O spec recusou --sim/--forcar de propósito; sem esta checagem,
+        `echo BACEN | py exclusao_coleta.py --excluir 1` apagaria sem
+        humano nenhum na tela."""
+        con = banco_conteudo.abrir(self.caminho)
+        banco_conteudo.iniciar_extracao(con, "BACEN", "concursos")
+        con.close()
+        mock_caminho.return_value = self.caminho
+        mock_stdin.isatty.return_value = False
+        with self.assertRaises(SystemExit) as ctx:
+            exclusao_coleta.main()
+        self.assertIn("terminal interativo", str(ctx.exception))
+        # nada foi apagado: a extração 1 continua existindo
+        con = banco_conteudo.abrir(self.caminho)
+        self.assertEqual(
+            con.execute("SELECT COUNT(*) FROM extracoes").fetchone()[0], 1)
+        con.close()
 
 
 class TestRelatorio(unittest.TestCase):
