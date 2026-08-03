@@ -4,7 +4,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import banco_conteudo
@@ -207,6 +207,49 @@ class TestApagarExtracao(unittest.TestCase):
         self.assertEqual(painel.dados_do_snapshot(self.con)["extracao"]["id"], eid2)
         exclusao_coleta.apagar_extracao(self.con, eid2)
         self.assertEqual(painel.dados_do_snapshot(self.con)["extracao"]["id"], eid1)
+
+    def test_listar_marca_publicada_e_aceita_desconhecido(self):
+        """A coluna 'publicada?' é o que evita apagar a origem de uma coleta que a
+        web ainda usa. Sem rede (publicadas=None) a listagem NÃO pode quebrar —
+        listar é leitura e tem de funcionar offline."""
+        eid1 = self._nova()
+        eid2 = self._nova("PRF")
+        data1 = self._data(eid1)
+        linhas = exclusao_coleta.listar_extracoes(
+            self.con, {("BACEN", data1[:19])})
+        por_id = {l["id"]: l for l in linhas}
+        self.assertIs(por_id[eid1]["publicada"], True)
+        self.assertIs(por_id[eid2]["publicada"], False)
+        self.assertEqual(por_id[eid1]["termo"], "BACEN")
+        self.assertGreater(por_id[eid1]["blocos"], 0)
+        # sem informação do Supabase: publicada = None (a tela mostra "?")
+        linhas = exclusao_coleta.listar_extracoes(self.con, None)
+        self.assertTrue(all(l["publicada"] is None for l in linhas))
+
+
+class TestPublicadasNoSupabase(unittest.TestCase):
+    @patch("exclusao_coleta.sync_supabase.esta_configurado", return_value=False)
+    def test_sem_credencial_devolve_none(self, _):
+        self.assertIsNone(exclusao_coleta.publicadas_no_supabase())
+
+    @patch("exclusao_coleta.requests.get", side_effect=Exception("rede fora"))
+    @patch("exclusao_coleta.sync_supabase._config", return_value=("http://x", "k"))
+    @patch("exclusao_coleta.sync_supabase.esta_configurado", return_value=True)
+    def test_rede_fora_devolve_none_sem_levantar(self, *_):
+        """Listar é leitura: rede fora vira '?' na coluna, nunca um traceback."""
+        self.assertIsNone(exclusao_coleta.publicadas_no_supabase())
+
+    @patch("exclusao_coleta.sync_supabase._config", return_value=("http://x", "k"))
+    @patch("exclusao_coleta.sync_supabase.esta_configurado", return_value=True)
+    @patch("exclusao_coleta.requests.get")
+    def test_normaliza_a_data_para_19_caracteres(self, mock_get, *_):
+        mock_get.return_value = MagicMock(
+            raise_for_status=lambda: None,
+            json=lambda: [{"termo": "BACEN", "iniciada_em": "2026-07-06T23:56:22+00:00"},
+                          {"termo": "PRF", "iniciada_em": None}])
+        pub = exclusao_coleta.publicadas_no_supabase()
+        self.assertIn(("BACEN", "2026-07-06T23:56:22"), pub)
+        self.assertEqual(len(pub), 1)   # linha sem data é descartada
 
 
 class TestRelatorio(unittest.TestCase):

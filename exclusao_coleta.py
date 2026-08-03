@@ -16,7 +16,10 @@
 import json
 from collections import namedtuple
 
+import requests
+
 import extrator_ldi
+import sync_supabase
 
 PedidoExclusao = namedtuple("PedidoExclusao",
                             "termo extracao_local iniciada_em vacuum")
@@ -151,6 +154,50 @@ def apagar_extracao(con, extracao_id):
             cur = con.execute(f"DELETE FROM {tabela} WHERE {coluna}=?", (extracao_id,))
             apagadas[tabela] = cur.rowcount
     return apagadas
+
+
+def publicadas_no_supabase():
+    """Devolve {(termo, iniciada_em[:19])} das coletas publicadas na web.
+
+    None quando não deu para consultar (sem credencial, sem rede, erro) — o
+    chamador mostra "?" na coluna. LISTAR É LEITURA: nunca pode levantar, senão
+    um blip de rede impede o Clovis de ver o que tem na própria máquina."""
+    if not sync_supabase.esta_configurado():
+        return None
+    try:
+        url, key = sync_supabase._config()
+        r = requests.get(f"{url}/rest/v1/snapshot",
+                         headers=sync_supabase._headers(key),
+                         params={"select": "termo,iniciada_em"}, timeout=30)
+        r.raise_for_status()
+        return {(x["termo"], (x["iniciada_em"] or "")[:_TAM_DATA])
+                for x in r.json() if x.get("iniciada_em")}
+    except Exception as e:
+        print(f"[aviso] não consegui consultar o Supabase ({e}); "
+              "a coluna 'publicada?' fica como '?'.")
+        return None
+
+
+def listar_extracoes(con, publicadas):
+    """Uma linha por extração do banco local, com o peso e se está publicada.
+
+    `publicadas` = saída de publicadas_no_supabase() (None = desconhecido).
+    A comparação usa os 19 primeiros caracteres da data: o SQLite grava naive
+    ('2026-07-06T23:56:22') e o Supabase devolve timestamptz ('...+00:00')."""
+    linhas = []
+    for r in con.execute(
+            "SELECT e.id, e.termo, e.iniciada_em, e.status, e.total_cursos, "
+            "       (SELECT COUNT(*) FROM blocos b WHERE b.extracao_id = e.id) blocos "
+            "FROM extracoes e ORDER BY e.id"):
+        chave = (r["termo"], (r["iniciada_em"] or "")[:_TAM_DATA])
+        linhas.append({
+            "id": r["id"], "termo": r["termo"],
+            "iniciada_em": (r["iniciada_em"] or "")[:16].replace("T", " "),
+            "status": r["status"], "cursos": r["total_cursos"] or 0,
+            "blocos": r["blocos"] or 0,
+            "publicada": None if publicadas is None else (chave in publicadas),
+        })
+    return linhas
 
 
 def relatorio(termo, extracao_local, apagadas, pendencias, mais_recente, vacuum=False):
