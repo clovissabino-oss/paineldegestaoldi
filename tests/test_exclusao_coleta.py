@@ -251,6 +251,14 @@ class TestPublicadasNoSupabase(unittest.TestCase):
         self.assertIn(("BACEN", "2026-07-06T23:56:22"), pub)
         self.assertEqual(len(pub), 1)   # linha sem data é descartada
 
+    @patch("exclusao_coleta.sync_supabase._config",
+           side_effect=SystemExit("faltam SUPABASE_URL e SUPABASE_SERVICE_KEY"))
+    @patch("exclusao_coleta.sync_supabase.esta_configurado", return_value=True)
+    def test_config_incompleta_devolve_none(self, *_):
+        """SystemExit herda de BaseException, não de Exception — um `except
+        Exception` sozinho deixaria a listagem quebrar com config pela metade."""
+        self.assertIsNone(exclusao_coleta.publicadas_no_supabase())
+
 
 class TestCompactar(unittest.TestCase):
     def setUp(self):

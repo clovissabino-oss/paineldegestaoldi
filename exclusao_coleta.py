@@ -236,7 +236,11 @@ def publicadas_no_supabase():
         r.raise_for_status()
         return {(x["termo"], (x["iniciada_em"] or "")[:_TAM_DATA])
                 for x in r.json() if x.get("iniciada_em")}
-    except Exception as e:
+    # SystemExit herda de BaseException, não de Exception — um `except Exception`
+    # sozinho não pegaria esse caminho. sync_supabase._config() levanta SystemExit
+    # quando a FONTE de config existe (esta_configurado()==True) mas está pela
+    # metade (ex.: supabase.json sem service_key, ou só uma das duas env vars).
+    except (Exception, SystemExit) as e:
         print(f"[aviso] não consegui consultar o Supabase ({e}); "
               "a coluna 'publicada?' fica como '?'.")
         return None
