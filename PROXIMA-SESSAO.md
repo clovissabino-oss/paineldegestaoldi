@@ -688,7 +688,7 @@ imports, não os nomes dos arquivos).
 
 Spec: `docs\superpowers\specs\2026-08-03-cli-exclusao-local-design.md`;
 plano: `docs\superpowers\plans\2026-08-03-cli-exclusao-local.md`.
-Branch `feat/cli-exclusao-local`, executada por subagentes. **143 → 153 testes.**
+Branch `feat/cli-exclusao-local`, executada por subagentes. **143 → 158 testes.**
 
 ```powershell
 py exclusao_coleta.py --listar                  # o que tem no banco daqui + quais estão na web
