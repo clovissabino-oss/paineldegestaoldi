@@ -13,6 +13,7 @@
  existência — é ela que segura a reexecução.
 ============================================================
 """
+import argparse
 import json
 import os
 import shutil
@@ -21,6 +22,7 @@ from collections import namedtuple
 
 import requests
 
+import banco_conteudo
 import extrator_ldi
 import sync_supabase
 
@@ -286,3 +288,109 @@ def relatorio(termo, extracao_local, apagadas, pendencias, mais_recente, vacuum=
     if vacuum:
         partes.append("VACUUM pedido, mas ainda não implementado (entrega 1b) — ignorado.")
     return " ".join(partes)
+
+
+def _caminho_banco():
+    """Mesmo caminho que o coletor e o painel usam (respeita o config.json)."""
+    import extrator_ldi as _e
+    cfg = _e.carregar_config()
+    return os.path.join(_e.PASTA_APP, cfg["pasta_saida"], "conteudo.db")
+
+
+def _imprimir_listagem(linhas):
+    if not linhas:
+        print("  (nenhuma extração no banco)")
+        return
+    print(f"  {'#':>3}  {'termo':28}  {'quando':16}  {'cursos':>6}  {'blocos':>7}  publicada?")
+    for l in linhas:
+        pub = {True: "sim", False: "não", None: "?"}[l["publicada"]]
+        print(f"  {l['id']:>3}  {l['termo'][:28]:28}  {l['iniciada_em']:16}  "
+              f"{l['cursos']:>6}  {l['blocos']:>7}  {pub}")
+    print("\n  'publicada?' = a coleta está no Supabase (o time vê na web).")
+    print("  Apagar aqui NÃO tira nada do ar — a web tem tela própria para isso.")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Exclusão e compactação do conteudo.db LOCAL. "
+                    "Não toca no Supabase — a web tem tela própria para isso.")
+    parser.add_argument("--listar", action="store_true",
+                        help="mostra as extrações do banco e quais estão publicadas")
+    parser.add_argument("--excluir", type=int, metavar="N",
+                        help="apaga a extração N (pede o termo por confirmação)")
+    parser.add_argument("--compactar", action="store_true",
+                        help="roda VACUUM e devolve o espaço ao disco")
+    args = parser.parse_args()
+
+    if not (args.listar or args.excluir or args.compactar):
+        parser.print_help()
+        return
+
+    caminho = _caminho_banco()
+    con = banco_conteudo.abrir(caminho)
+    try:
+        print("=" * 66)
+        print(f" EXCLUSÃO LOCAL  |  banco: {caminho}")
+        print("=" * 66)
+
+        if args.listar or args.excluir:
+            linhas = listar_extracoes(con, publicadas_no_supabase())
+
+        if args.listar:
+            _imprimir_listagem(linhas)
+            if not args.excluir and not args.compactar:
+                return
+
+        if args.excluir:
+            alvo = next((l for l in linhas if l["id"] == args.excluir), None)
+            if alvo is None:
+                raise _falhar(f"não existe extração #{args.excluir} neste banco.")
+            if not args.listar:
+                _imprimir_listagem([alvo])
+            if banco_em_uso(con):
+                raise _falhar("o banco está em uso por outro processo "
+                              "(painel.py aberto? coleta rodando?). Feche e tente de novo.")
+            if args.compactar:
+                cabe, precisa, livre = espaco_para_vacuum(caminho)
+                if not cabe:
+                    raise _falhar(
+                        f"espaço insuficiente para compactar: precisa de "
+                        f"{precisa/1048576:.0f} MB livres, há {livre/1048576:.0f} MB. "
+                        "Nada foi apagado.")
+            print(f"\n  Isto apaga a extração #{alvo['id']} ({alvo['blocos']} blocos) "
+                  "do banco local. NÃO tem volta.")
+            if alvo["publicada"]:
+                print("  ⚠ Esta coleta está publicada na web — o snapshot continua lá, "
+                      "mas some a origem local (recoleta/diff futuros).")
+            digitado = input(f"  Digite {alvo['termo']} para confirmar: ").strip()
+            if digitado != alvo["termo"]:
+                raise _falhar("o termo digitado não confere. Nada foi apagado.")
+
+            # `conferir_extracao` não é chamada aqui de propósito: ela existe para
+            # o worker, que recebe termo e data de FORA (do pedido na fila) e
+            # precisa provar que batem com o banco. No CLI o alvo veio da listagem
+            # do próprio banco — conferi-lo contra ele mesmo seria tautológico.
+            # A proteção que vale aqui é a confirmação digitada, acima.
+            pend = contar_pendencias(con, alvo["id"])
+            recente = era_a_mais_recente(con, alvo["id"])
+            apagadas = apagar_extracao(con, alvo["id"])
+            print("\n  " + relatorio(alvo["termo"], alvo["id"], apagadas, pend, recente))
+
+        if args.compactar:
+            if banco_em_uso(con):
+                raise _falhar("o banco está em uso por outro processo. "
+                              "Feche o painel/coleta e tente de novo.")
+            cabe, precisa, livre = espaco_para_vacuum(caminho)
+            if not cabe:
+                raise _falhar(f"espaço insuficiente: precisa de {precisa/1048576:.0f} MB "
+                              f"livres, há {livre/1048576:.0f} MB.")
+            print("\n  Compactando (o banco fica travado durante a operação)...")
+            antes, depois = compactar(con, caminho)
+            print(f"  {antes/1048576:.1f} MB → {depois/1048576:.1f} MB "
+                  f"(devolvidos {(antes-depois)/1048576:.1f} MB)")
+    finally:
+        con.close()
+
+
+if __name__ == "__main__":
+    main()
