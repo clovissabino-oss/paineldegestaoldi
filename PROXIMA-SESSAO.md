@@ -745,6 +745,26 @@ funcionar offline).
 **puramente aditiva** para o `worker_coleta.py` (as funções que ele importa estão byte a byte
 iguais), então o VPS não precisa nem de `git pull`.
 
+### 🐛 Defeito da 1a que apareceu no uso (03/08) — pendente de conserto
+
+**Um pedido de exclusão em `erro` TRAVA a linha do snapshot na `/admin`.** Por desenho meu, a
+linha mostra "⛔ falhou" + [Retentar] no lugar do botão [Excluir] — então não há como tentar de
+novo com o alvo corrigido, e o Retentar não ajuda quando a causa é o próprio alvo.
+
+Aconteceu de verdade com o pedido #27: alvo com `iniciada_em` de 31/07, snapshot republicado
+depois, e o worker recusando com "termo divergente". Beco sem saída. **Resolvi na mão** (DELETE
+do snapshot + PATCH do pedido para `cancelada`, via API com o service_role), mas o defeito
+continua no código.
+
+**Consertos possíveis** (escolher na 2b ou antes): oferecer [Cancelar] ao lado do [Retentar] num
+pedido em `erro`, para o admin liberar a linha sozinho; ou mostrar o botão [Excluir] mesmo com
+pedido em erro, já que o pedido velho não bloqueia um novo.
+
+**Relacionado — snapshot órfão não é excluível pela web:** o `processar_exclusao` chama
+`conferir_extracao` **antes** do DELETE no Supabase, e ela levanta se termo/data divergirem. Um
+snapshot cuja origem local não existe (ou é de outro banco) fica preso: a trava que protege
+contra apagar a coleta errada também impede limpar o órfão. Hoje só dá para resolver por fora.
+
 ---
 
 ## 🔑 Coisas que a próxima sessão PRECISA saber
