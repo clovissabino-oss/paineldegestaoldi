@@ -165,9 +165,11 @@ _RE_NUM_NOME = re.compile(r"^\s*(\d+)")
 def _chave_path(path):
     """'13.1' -> (13, 1). Devolve () quando não há nenhum componente numérico.
 
-    A ordem do LDI vem daqui: `capitulos.ordem` é zero em toda a base (a API manda
-    order_index=0), então o path da aula é a única fonte real de posição — e ele é
-    relativo ao curso (o mesmo item tem path diferente em cada pacote).
+    A ordem do LDI **de curso** vem daqui: `capitulos.ordem` é zero em toda
+    extração de curso (a API manda order_index=0), então o path da aula é a
+    única fonte real de posição — e ele é relativo ao curso (o mesmo item tem
+    path diferente em cada pacote). No Material Base é o contrário: ver
+    _chave_capitulo_mb.
     """
     partes = [p.strip() for p in str(path or "").split(".") if p.strip() != ""]
     if not any(p.isdigit() for p in partes):
@@ -186,6 +188,22 @@ def _chave_capitulo(paths, nome):
     if achado:
         return (0, (int(achado.group(1)),), nm)
     return (1, (), nm)
+
+
+def _chave_capitulo_mb(ordem, nome):
+    """Ordem do capítulo no Material Base: a POSIÇÃO devolvida pela API.
+
+    A regra do curso (menor path dos itens) NÃO vale aqui: no MB o path do item
+    é relativo ao capítulo e reinicia a cada um (medido na API real: um capítulo
+    com itens 14/14.1/14.2, outro começando em 1). Aplicá-la numera todo
+    capítulo como "1" e ordena por nome. `capitulos.ordem` guarda a posição real
+    do array da API (gravada por parse_blocos.arvore_do_mb) — é a fonte certa.
+
+    A posição da API é 0-based; a numeração exibida começa em 1. Nunca lança."""
+    nm = (nome or "").strip().lower()
+    if ordem is None:
+        return (1, (), nm)  # sem posição conhecida: fim, em ordem alfabética
+    return (0, (int(ordem) + 1,), nm)
 
 
 def _chave_item(path, nome):
@@ -266,17 +284,23 @@ def dados_avaliacao(con, curso_id, depara=None):
                     (curso_id,)).fetchone()[0]
     curso = con.execute("SELECT nome, autores FROM cursos WHERE extracao_id=? AND curso_id=?",
                         (e, curso_id)).fetchone()
+    # O universo decide de onde sai a ORDEM dos capítulos (e só isso): curso
+    # deriva do path dos itens, MB usa a posição da API. Ver _chave_capitulo_mb.
+    tipo = con.execute("SELECT COALESCE(tipo,'curso') FROM extracoes WHERE id=?",
+                       (e,)).fetchone()
+    eh_mb = (tipo[0] if tipo else "curso") == "mb"
     ano_atual = datetime.now().year
     corte_crit, corte_aten = ano_atual - 6, ano_atual - 3
 
     caps = []
-    for cap in con.execute("SELECT capitulo_id, nome FROM capitulos "
+    for cap in con.execute("SELECT capitulo_id, nome, ordem FROM capitulos "
                            "WHERE extracao_id=? AND curso_id=?", (e, curso_id)):
         linhas = con.execute(
             "SELECT item_id, nome, path, vinculado_mb FROM aulas "
             "WHERE extracao_id=? AND curso_id=? AND capitulo_id=?",
             (e, curso_id, cap["capitulo_id"])).fetchall()
-        chave_cap = _chave_capitulo([r["path"] for r in linhas], cap["nome"])
+        chave_cap = (_chave_capitulo_mb(cap["ordem"], cap["nome"]) if eh_mb
+                     else _chave_capitulo([r["path"] for r in linhas], cap["nome"]))
 
         itens, por_id = [], {}
         for r in linhas:
