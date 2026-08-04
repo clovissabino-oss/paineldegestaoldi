@@ -1,6 +1,6 @@
 # 🎬 Extrator LDI — Estado atual (norte da próxima sessão)
 
-_Última atualização: 03/08/2026 (sessão 13: CLI de exclusão local + compactação)._
+_Última atualização: 04/08/2026 (sessão 14: coleta do Material Base do professor — parte 1)._
 
 Este arquivo é o **ponto de partida** de qualquer nova sessão. Para o passo a passo
 de uso, veja o `TUTORIAL.md`. Para a visão do projeto, a memória do Claude
@@ -764,6 +764,95 @@ pedido em erro, já que o pedido velho não bloqueia um novo.
 `conferir_extracao` **antes** do DELETE no Supabase, e ela levanta se termo/data divergirem. Um
 snapshot cuja origem local não existe (ou é de outro banco) fica preso: a trava que protege
 contra apagar a coleta errada também impede limpar o órfão. Hoje só dá para resolver por fora.
+
+---
+
+## ✅ Sessão 14 (03-04/08): Material Base do professor — parte 1 (local)
+
+Spec: `docs\superpowers\specs\2026-08-03-coleta-material-base-design.md`;
+plano: `docs\superpowers\plans\2026-08-03-coleta-material-base.md`.
+Branch `feat/coleta-material-base`, 20 commits, executada por subagentes. **202 → 217 testes.**
+
+Até aqui toda extração era de um **curso**. Agora dá para coletar o **Material Base (MB)** —
+o acervo interno do professor — e os dois universos ficam separados no dado e na tela.
+
+```powershell
+py coletor_ldi.py --mb-professor "Ciciliati"    # acha o professor e IMPRIME o comando pronto
+py coletor_ldi.py --mb <id ou URL> --professor "Profa Nilza Ciciliati"
+py painel.py                                     # seletor de universo na tela; ?universo=mb
+```
+
+### O que a sondagem da API descobriu (medido, não suposto)
+
+| Fato | Valor |
+|---|---|
+| Endpoint | `/bo/ldi/base-material` (**singular**; plural dá 404) |
+| Árvore inteira | 1 requisição, **366 KB, 1,1 s** (36 caps, ~646 itens) |
+| Universo | **387 MBs para 226 professores** — 1 MB = (professor × disciplina); um professor tem 11 |
+| Massa p/ comparação | **17 professores com MB de "Língua Portuguesa"**, 10 de Matemática, 7 de Dir. Constitucional |
+| Blocos | `GET /bo/ldi/blocks?item_id=` — **o mesmo de hoje**, sem mudança |
+
+**O achado que definiu a arquitetura: o item do curso É o item do MB (mesmo `item_id`).**
+Não é cópia — 225 dos 646 itens de um MB real já estavam nos cursos coletados (122 nos seis
+cursos de Dir. Constitucional do BACEN), e 21 dos 22 blocos de um item batiam. Por isso o MB
+entra nas **mesmas tabelas** com `extracoes.tipo` como discriminador: tabelas separadas
+duplicariam linhas e jogariam fora o join que responde "o que o professor tem × o que chega
+ao aluno".
+
+### Três armadilhas que quase entraram (e o que as pegou)
+
+1. **O `type_count` do item-pai já inclui os descendentes** — um item com 149 questões tem 7
+   filhos que somam exatamente 149, e o `/blocks` do pai devolve **zero**. Como o desenho
+   achata sub-itens, guardar o `type_count` de pai e filhos **dobraria** cada capítulo com
+   sub-item. Pego ao escrever o plano; a correção (`contagem própria = pai − Σ filhos`) tem
+   teste com esses números reais.
+2. **A ordem dos capítulos do MB saía degenerada** — o painel deduz o número do capítulo do
+   menor `path` dos itens, o que vale no curso (`2.1`, `2.2`) mas não no MB, onde o path
+   **reinicia a cada capítulo**. Os 36 capítulos apareceriam todos como **"1"**, em ordem
+   alfabética. O dado certo já estava em `capitulos.ordem` — gravado e **sem leitor**.
+   Só a revisão final da branch pegou.
+3. **O `--mb <id>` nunca descobriria o nome do professor** — o plano mandava buscar pelo nome
+   da **disciplina** no diretório de usuários. A API não tem lookup por UUID, então virou a
+   flag `--professor`, e o `--mb-professor` passou a imprimir o comando pronto com o nome.
+
+### O que o MB NÃO faz (deliberado, não esquecimento)
+
+- **Não roda regras de qualidade.** O motor dá baixa automática no snapshot seguinte — rodá-lo
+  sobre um MB resolveria em massa pendências de **curso** que continuam abertas na realidade.
+- **Não é publicado no Supabase.** A view `snapshot_atual` é `distinct on (termo)`: sete MBs
+  de "Direito Constitucional" fariam seis sumirem em silêncio. Guardado por
+  `sync_supabase.extracao_publicavel`, com teste.
+- `era_a_mais_recente` da exclusão passou a comparar **dentro do mesmo tipo** — antes mentia
+  nos dois sentidos depois dos guardas.
+
+**Nenhum deploy. Nenhuma migração no Supabase. O worker do VPS NÃO precisa de `git pull`**
+— nada que ele alcança por import mudou de forma, e MB não chega à web.
+
+### ⚠ Falta (só o Clovis pode fazer)
+
+1. **Coletar o MB de referência**: `py coletor_ldi.py --mb 3e8e7c78-cdc4-4dc2-90ad-0dae39b827f5`
+   → esperado **36 capítulos, ~646–651 itens**, aviso de **111 capítulos ocultos**.
+2. **Coletar o MESMO MB uma segunda vez e comparar os totais.** Este passo resolve o único
+   risco que desenho nenhum resolve: duas leituras do mesmo MB com 10 min de intervalo me
+   deram **646 e 651 itens**. Se for o professor editando ao vivo, está tudo certo. Se for
+   paginação instável, **a coleta perde itens em silêncio** — parar e investigar antes da
+   parte 2.
+3. `py coletor_ldi.py --mb-professor Ciciliati` → um resultado só (Profa Nilza · Serviço Social).
+4. Painel: universo "Cursos" com números **idênticos** aos de antes; universo MB com a
+   cobertura (~225 itens chegando a curso, contra os cursos do BACEN na base).
+5. Conferir que **nada mudou na web** — é o ponto dos guardas.
+6. Push da branch + PR → `main`.
+
+### Parte 2 (web) — plano próprio, depois do aceite
+
+`supabase\schema_mb.sql` (`snapshot` ganha `tipo`+`chave`; view vira `distinct on (tipo, chave)`),
+modo "professor" na `/coleta`, coluna `tipo` na `/admin`, seletor nas cópias `web\telas\`, e o
+`git pull` + restart do worker. **Pré-requisito registrado:** escapar `innerHTML` nas telas —
+hoje é Flask em 127.0.0.1 com dado do admin, mas na parte 2 elas servem usuários autenticados
+que não são o autor, e `--professor` é entrada digitada.
+
+Pendências menores conhecidas: `/?universo=mb` (inventário) mostra só o MB mais recente — a
+`/avaliacao` alcança todos; e os achados do painel no universo MB ainda falam em "cursos".
 
 ---
 
