@@ -130,11 +130,29 @@ def conferir_extracao(con, extracao_id, termo, iniciada_em):
 
 
 def era_a_mais_recente(con, extracao_id):
-    """True se esta é a extração de maior id — a que painel.py:49 e
-    sync_supabase.py:62 abrem por padrão (ORDER BY id DESC LIMIT 1, GLOBAL,
-    sem filtrar por termo). Chamar ANTES de apagar. Serve para RELATAR, não
-    para bloquear: apagar a coleta ruim é justamente apagar a última."""
-    maior = con.execute("SELECT MAX(id) FROM extracoes").fetchone()[0]
+    """True se esta é a extração de maior id DENTRO DO PRÓPRIO TIPO.
+
+    Por que não é o MAX(id) global (era, e mentia dos dois lados)
+    -----------------------------------------------------------
+    Desde o Material Base, `painel.dados_do_snapshot` e
+    `sync_supabase.extracao_publicavel` filtram por `tipo` antes do
+    `ORDER BY id DESC LIMIT 1`. Com a comparação global:
+
+    - apagar um MB de id maior que todo curso disparava o aviso de que "o painel
+      passa a abrir a anterior" — falso, o painel de CURSO nem enxergava o MB;
+    - apagar a última coleta de CURSO havendo um MB de id maior não disparava
+      aviso nenhum — embora o painel de curso e o sync realmente passassem a
+      abrir a coleta anterior.
+
+    Chamar ANTES de apagar (a linha precisa existir para se saber o tipo). Serve
+    para RELATAR, não para bloquear: apagar a coleta ruim é justamente apagar a
+    última."""
+    tipo = con.execute("SELECT COALESCE(tipo,'curso') FROM extracoes WHERE id=?",
+                       (extracao_id,)).fetchone()
+    if tipo is None:      # já não existe neste banco: não há painel a mudar
+        return False
+    maior = con.execute("SELECT MAX(id) FROM extracoes "
+                        "WHERE COALESCE(tipo,'curso')=?", (tipo[0],)).fetchone()[0]
     return maior is not None and maior == extracao_id
 
 
@@ -305,8 +323,10 @@ def relatorio(termo, extracao_local, apagadas, pendencias, mais_recente, vacuum=
                       "continuarão abertas com os números antigos até a próxima "
                       "coleta deste termo.")
     if mais_recente:
-        partes.append("Era a extração de maior id — o painel local passa a abrir "
-                      "a anterior.")
+        # "deste tipo" e não "de maior id": painel e sync abrem a mais recente
+        # DENTRO do universo (curso/MB) — ver era_a_mais_recente.
+        partes.append("Era a coleta mais recente deste tipo — o painel local "
+                      "passa a abrir a anterior.")
     if vacuum:
         partes.append("VACUUM pedido, mas ainda não implementado (entrega 1b) — ignorado.")
     return " ".join(partes)

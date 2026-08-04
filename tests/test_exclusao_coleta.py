@@ -198,6 +198,43 @@ class TestApagarExtracao(unittest.TestCase):
         self.assertEqual(exclusao_coleta.contar_pendencias(self.con, eid2), 1)
         self.assertEqual(exclusao_coleta.contar_pendencias(self.con, eid1), 0)
 
+    def _novo_mb(self):
+        return banco_conteudo.iniciar_extracao(
+            self.con, "MB · Profa Fulana · Direito Constitucional", "concursos",
+            tipo="mb", professor_nome="Profa Fulana",
+            disciplina="Direito Constitucional")
+
+    def test_mb_avisa_mesmo_havendo_curso_de_id_maior(self):
+        """Apagar o único MB muda o painel de MB — que filtra por tipo antes do
+        ORDER BY e não enxerga o curso de id maior. Com o MAX(id) global este
+        caso ficava mudo."""
+        mb = self._novo_mb()
+        self._nova()   # curso com id MAIOR que o MB
+        self.assertTrue(exclusao_coleta.era_a_mais_recente(self.con, mb))
+        self.assertIn("mais recente deste tipo", exclusao_coleta.relatorio(
+            "MB · Profa Fulana · Direito Constitucional", mb, {}, 0, True))
+
+    def test_ultimo_curso_avisa_mesmo_havendo_mb_de_id_maior(self):
+        """O oposto: o painel de curso e o sync REALMENTE passam a abrir a
+        coleta anterior. Com o MAX(id) global, este caso ficava mudo."""
+        self._nova()
+        curso2 = self._nova()
+        self._novo_mb()   # id maior que os dois cursos
+        self.assertTrue(exclusao_coleta.era_a_mais_recente(self.con, curso2))
+        self.assertIn("mais recente deste tipo",
+                      exclusao_coleta.relatorio("BACEN", curso2, {}, 0, True))
+
+    def test_mb_mais_recente_entre_mbs_avisa(self):
+        mb1 = self._novo_mb()
+        mb2 = self._novo_mb()
+        self.assertFalse(exclusao_coleta.era_a_mais_recente(self.con, mb1))
+        self.assertTrue(exclusao_coleta.era_a_mais_recente(self.con, mb2))
+
+    def test_extracao_inexistente_nao_avisa_nada(self):
+        """Reexecução do worker: a extração já foi apagada na passada anterior."""
+        self._nova()
+        self.assertFalse(exclusao_coleta.era_a_mais_recente(self.con, 9999))
+
     def test_regressao_painel_cai_para_a_anterior(self):
         """painel.py e sync_supabase.py fazem ORDER BY id DESC LIMIT 1 GLOBAL.
         Apagar a mais recente muda qual snapshot o painel local abre — este teste
@@ -414,7 +451,9 @@ class TestRelatorio(unittest.TestCase):
         self.assertIn("BACEN #37", texto)
         self.assertIn("blocos: 64838", texto)
         self.assertIn("120 pendências", texto)
-        self.assertIn("maior id", texto)
+        # "deste tipo", não "de maior id": painel e sync abrem a coleta mais
+        # recente DENTRO do universo (curso/MB) — ver era_a_mais_recente.
+        self.assertIn("mais recente deste tipo", texto)
 
     def test_relatorio_sem_extracao_local(self):
         texto = exclusao_coleta.relatorio("BACEN", 37, {}, 0, False)
