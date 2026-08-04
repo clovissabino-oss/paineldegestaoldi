@@ -108,5 +108,85 @@ class TestIndiceDeMBs(unittest.TestCase):
         self.assertEqual(len(s.chamadas), 2)  # parou na página incompleta
 
 
+import os
+import tempfile
+
+import banco_conteudo
+
+
+class TestColetarMB(unittest.TestCase):
+    """Coleta ponta a ponta com sessão dublê — prova o que grava no banco."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.caminho = os.path.join(self.dir, "t.db")
+        self.cfg = {"vertical": "concursos", "concorrencia": 2}
+
+    def _sessao(self):
+        detalhe = {"id": "mb-1", "name": "Direito Constitucional ", "user_id": "u-prof",
+                   "main_classification_id": "cls-1", "hide_chapters": ["h1", "h2"]}
+        caps = [{"id": "cap-a", "name": "Teoria", "items": [
+            {"id": "it-1", "path": "1", "name": "Item 1",
+             "type_count": {"block_type_count": {"question": 2}}, "items": []},
+        ]}]
+        blocos = {"data": [
+            {"id": "b1", "type": "question", "order": 1, "is_active": True},
+            {"id": "b2", "type": "question", "order": 2, "is_active": True},
+        ]}
+        return _Sessao({
+            "/chapters": _Resposta({"data": caps}),
+            "/base-material/mb-1": _Resposta({"data": detalhe}),
+            "/blocks?item_id=": _Resposta(blocos),
+        })
+
+    def test_grava_extracao_de_mb_com_metadados_e_blocos(self):
+        eid = coletor_ldi.coletar_mb(self.cfg, self._sessao(), "mb-1", self.caminho,
+                                     professor_nome="Profa Fulana")
+        con = banco_conteudo.abrir(self.caminho)
+        try:
+            ext = con.execute("SELECT * FROM extracoes WHERE id=?", (eid,)).fetchone()
+            self.assertEqual(ext["tipo"], "mb")
+            self.assertEqual(ext["disciplina"], "Direito Constitucional")
+            self.assertEqual(ext["professor_nome"], "Profa Fulana")
+            self.assertEqual(ext["professor_id"], "u-prof")
+            self.assertEqual(ext["capitulos_ocultos"], 2)
+            self.assertEqual(ext["termo"], "MB · Profa Fulana · Direito Constitucional")
+            self.assertEqual(con.execute(
+                "SELECT COUNT(*) FROM blocos WHERE extracao_id=?", (eid,)).fetchone()[0], 2)
+            self.assertEqual(con.execute(
+                "SELECT curso_id, nome FROM cursos WHERE extracao_id=?",
+                (eid,)).fetchone()[:2], ("mb-1", "Direito Constitucional"))
+        finally:
+            con.close()
+
+    def test_todo_item_de_mb_nasce_vinculado_ao_mb(self):
+        eid = coletor_ldi.coletar_mb(self.cfg, self._sessao(), "mb-1", self.caminho)
+        con = banco_conteudo.abrir(self.caminho)
+        try:
+            self.assertEqual(con.execute(
+                "SELECT vinculado_mb FROM aulas WHERE extracao_id=?", (eid,)).fetchone()[0], 1)
+        finally:
+            con.close()
+
+    def test_nao_roda_regras_de_qualidade(self):
+        """O motor dá baixa automática no snapshot seguinte; rodá-lo sobre um MB
+        resolveria em massa pendências de curso que continuam abertas."""
+        coletor_ldi.coletar_mb(self.cfg, self._sessao(), "mb-1", self.caminho)
+        con = banco_conteudo.abrir(self.caminho)
+        try:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM pendencias").fetchone()[0], 0)
+        finally:
+            con.close()
+
+    def test_sem_professor_conhecido_usa_o_uuid_no_termo(self):
+        eid = coletor_ldi.coletar_mb(self.cfg, self._sessao(), "mb-1", self.caminho)
+        con = banco_conteudo.abrir(self.caminho)
+        try:
+            termo = con.execute("SELECT termo FROM extracoes WHERE id=?", (eid,)).fetchone()[0]
+            self.assertIn("u-prof", termo)  # UUID visível, não "—"
+        finally:
+            con.close()
+
+
 if __name__ == "__main__":
     unittest.main()
