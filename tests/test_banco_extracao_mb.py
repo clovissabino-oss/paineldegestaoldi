@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Colunas de Material Base em extracoes + migração idempotente."""
 import os
+import sqlite3
 import tempfile
 import unittest
 
@@ -65,6 +66,38 @@ class TestExtracaoMB(unittest.TestCase):
         tipo = self.con.execute(
             "SELECT COALESCE(tipo,'curso') FROM extracoes WHERE id=?", (eid,)).fetchone()[0]
         self.assertEqual(tipo, "curso")
+
+    def test_linha_gravada_antes_da_migracao_recebe_tipo_curso(self):
+        """Discrimina de verdade a migração: cria o banco no schema ANTIGO (sem as
+        colunas de Material Base) com sqlite3 puro, grava uma linha ANTES de a coluna
+        'tipo' existir, e só então passa pelo banco_conteudo.abrir(). A linha antiga
+        tem que sobreviver com tipo='curso', não NULL."""
+        caminho_antigo = os.path.join(self.dir, "antigo.db")
+        con_bruta = sqlite3.connect(caminho_antigo)
+        con_bruta.execute(
+            "CREATE TABLE extracoes("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  termo TEXT NOT NULL, vertical TEXT NOT NULL,"
+            "  iniciada_em TEXT NOT NULL, concluida_em TEXT,"
+            "  status TEXT NOT NULL DEFAULT 'em_andamento',"
+            "  total_cursos INTEGER DEFAULT 0, total_aulas INTEGER DEFAULT 0,"
+            "  total_blocos INTEGER DEFAULT 0, erros_json TEXT DEFAULT '{}')")
+        con_bruta.execute(
+            "INSERT INTO extracoes(termo, vertical, iniciada_em) VALUES(?,?,?)",
+            ("PreHistorico", "concursos", "2020-01-01T00:00:00"))
+        con_bruta.commit()
+        con_bruta.close()
+
+        con_migrada = banco_conteudo.abrir(caminho_antigo)
+        try:
+            r = con_migrada.execute(
+                "SELECT termo, tipo FROM extracoes WHERE termo=?",
+                ("PreHistorico",)).fetchone()
+            self.assertIsNotNone(r, "a linha gravada antes da migração sumiu")
+            self.assertEqual(r["termo"], "PreHistorico")
+            self.assertEqual(r["tipo"], "curso")
+        finally:
+            con_migrada.close()
 
 
 if __name__ == "__main__":
