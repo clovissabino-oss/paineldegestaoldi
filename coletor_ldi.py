@@ -209,7 +209,7 @@ def indice_de_mbs(sessao):
     # existe — o usuário precisa saber que a lista veio pela metade.
     print(f"  [aviso] parei na página {_MAX_PAGINAS_MB} do índice de Materiais Base "
           f"({len(todos)} lidos) e ainda havia mais. A busca de professor pode não "
-          f"achar quem está nas páginas seguintes — aumente _MAX_PAGINAS_MB.")
+          "achar quem está nas páginas seguintes — aumente _MAX_PAGINAS_MB.")
     return todos
 
 
