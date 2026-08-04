@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """Camada de API do Material Base (sem rede: sessão dublê)."""
+import contextlib
+import io
 import unittest
+from unittest import mock
 
 import coletor_ldi
+import extrator_ldi
 
 
 class _Resposta:
@@ -59,10 +63,30 @@ class TestObterMB(unittest.TestCase):
         self.assertEqual(len(caps), 1)
         self.assertIn("per_page=100", s.chamadas[-1])
 
-    def test_401_vira_cookie_vencido(self):
+    def test_401_vira_cookie_vencido_com_o_motivo_impresso(self):
+        """Levantar mudo deixava o usuário só com "Pressione ENTER para fechar".
+        Delegar ao extrator_ldi.get_json é o que imprime o motivo."""
         s = _Sessao({"/base-material/": _Resposta({}, 401)})
-        with self.assertRaises(coletor_ldi.CookieVencido):
-            coletor_ldi.obter_mb(s, "mb-1")
+        saida = io.StringIO()
+        with contextlib.redirect_stdout(saida):
+            with self.assertRaises(coletor_ldi.CookieVencido):
+                coletor_ldi.obter_mb(s, "mb-1")
+        self.assertIn("cookie", saida.getvalue().lower())
+
+    def test_5xx_tenta_de_novo_como_o_resto_do_projeto(self):
+        """Antes, um 500 pontual derrubava a coleta do MB na primeira tentativa,
+        enquanto todo o resto do projeto tenta 4× com backoff."""
+        tentativas = []
+
+        def responder(url):
+            tentativas.append(url)
+            return _Resposta({"data": {"id": "mb-1", "name": "Penal"}}) \
+                if len(tentativas) > 2 else _Resposta({}, 503)
+
+        s = _Sessao({"/base-material/mb-1": responder})
+        with mock.patch.object(extrator_ldi.time, "sleep"):
+            self.assertEqual(coletor_ldi.obter_mb(s, "mb-1")["name"], "Penal")
+        self.assertEqual(len(tentativas), 3)
 
 
 class TestBuscaDeProfessor(unittest.TestCase):
@@ -93,6 +117,15 @@ class TestBuscaDeProfessor(unittest.TestCase):
             coletor_ldi.buscar_professores_com_mb(s, "ab")
         self.assertEqual(s.chamadas, [])  # nada foi à rede
 
+    def test_termo_com_espaco_e_acento_vai_escapado_na_url(self):
+        """O spec prevê o usuário digitando duas palavras; sem escapar, o espaço
+        quebra a query (mesmo tratamento do search_term em extrator_ldi)."""
+        s = self._sessao()
+        coletor_ldi.buscar_professores_com_mb(s, "Nilza Ciciliati")
+        url = next(u for u in s.chamadas if "/users?" in u)
+        self.assertIn("term=Nilza%20Ciciliati", url)
+        self.assertNotIn(" ", url)
+
 
 class TestIndiceDeMBs(unittest.TestCase):
     def test_pagina_ate_a_pagina_incompleta(self):
@@ -106,6 +139,18 @@ class TestIndiceDeMBs(unittest.TestCase):
         s = _Sessao({"/base-material?": responder})
         self.assertEqual(len(coletor_ldi.indice_de_mbs(s)), 101)
         self.assertEqual(len(s.chamadas), 2)  # parou na página incompleta
+
+    def test_trava_de_paginas_avisa_em_vez_de_truncar_em_silencio(self):
+        """Truncar mudo faria a busca "não achar" um professor que existe."""
+        cheia = _Resposta({"data": [{"id": f"m{i}", "user_id": "u", "name": "D"}
+                                    for i in range(100)]})
+        s = _Sessao({"/base-material?": cheia})
+        saida = io.StringIO()
+        with contextlib.redirect_stdout(saida):
+            todos = coletor_ldi.indice_de_mbs(s)
+        self.assertEqual(len(todos), 100 * coletor_ldi._MAX_PAGINAS_MB)
+        self.assertIn("aviso", saida.getvalue())
+        self.assertIn("ainda havia mais", saida.getvalue())
 
 
 import os
@@ -187,11 +232,39 @@ class TestColetarMB(unittest.TestCase):
         finally:
             con.close()
 
+    def test_sem_professor_conhecido_o_uuid_tambem_chega_a_tela(self):
+        """Risco nº 2 do spec: a tela mostra o UUID, não "—" nem "professor sem
+        nome no diretório" (que parece defeito). O termo já trazia o UUID, mas
+        professor_nome e autores ficavam vazios — que é o que a tela lê."""
+        eid = coletor_ldi.coletar_mb(self.cfg, self._sessao(), "mb-1", self.caminho)
+        con = banco_conteudo.abrir(self.caminho)
+        try:
+            self.assertEqual(con.execute(
+                "SELECT professor_nome FROM extracoes WHERE id=?", (eid,)).fetchone()[0],
+                "u-prof")
+            self.assertEqual(con.execute(
+                "SELECT autores FROM cursos WHERE extracao_id=?", (eid,)).fetchone()[0],
+                "u-prof")
+        finally:
+            con.close()
+
+    def test_conta_os_capitulos_que_entraram_na_arvore_e_nao_os_crus(self):
+        """arvore_do_mb descarta capítulo sem `id`; a mensagem tem de anunciar o
+        número que FOI coletado — é o gabarito do aceite e da comparação dupla."""
+        detalhe = {"id": "mb-1", "name": "D", "user_id": "u-prof"}
+        caps = [{"id": "cap-a", "name": "Vale", "items": []},
+                {"name": "Sem id — descartado", "items": []}]
+        s = _Sessao({"/chapters": _Resposta({"data": caps}),
+                     "/base-material/mb-1": _Resposta({"data": detalhe}),
+                     "/blocks?item_id=": _Resposta({"data": []})})
+        saida = io.StringIO()
+        with contextlib.redirect_stdout(saida):
+            coletor_ldi.coletar_mb(self.cfg, s, "mb-1", self.caminho)
+        self.assertIn("1 capítulos", saida.getvalue())
+        self.assertNotIn("2 capítulos", saida.getvalue())
+
 
 import sys
-from unittest import mock
-
-import extrator_ldi
 
 
 class TestCLIProfessor(unittest.TestCase):

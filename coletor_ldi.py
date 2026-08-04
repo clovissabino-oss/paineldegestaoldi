@@ -168,12 +168,11 @@ def extrair_id_mb(texto):
 
 
 def _get_mb(sessao, caminho):
-    r = sessao.get(f"{extrator_ldi.API}{caminho}", timeout=120)
-    if r.status_code in (401, 403):
-        raise CookieVencido(1)
-    if not r.ok:
-        raise extrator_ldi.falha(f"HTTP {r.status_code} em {caminho}")
-    return r.json()
+    """GET no LDI pelo caminho relativo, com o MESMO tratamento do resto do
+    projeto: 4 tentativas com backoff em 429/5xx e em falha de rede, e 401/403
+    imprimindo o motivo ANTES de levantar CookieVencido — sem isso o usuário
+    via só "Pressione ENTER para fechar"."""
+    return extrator_ldi.get_json(sessao, f"{extrator_ldi.API}{caminho}")
 
 
 def obter_mb(sessao, mb_id):
@@ -187,22 +186,25 @@ def capitulos_do_mb(sessao, mb_id):
                    ).get("data") or []
 
 
-def mbs_do_professor(sessao, user_id):
-    return _get_mb(sessao, f"/bo/ldi/base-material?page=1&per_page=100&user_id={user_id}"
-                   ).get("data") or []
+_MAX_PAGINAS_MB = 10  # trava de segurança; hoje são 4 páginas (387 MBs)
 
 
 def indice_de_mbs(sessao):
     """Os ~387 MBs da base. Serve para saber QUEM é professor: o LDI não tem
     endpoint de professores, e a busca de usuários devolve alunos também."""
     todos, pagina = [], 1
-    while pagina <= 10:  # trava de segurança; hoje são 4 páginas
+    while pagina <= _MAX_PAGINAS_MB:
         lote = _get_mb(sessao, f"/bo/ldi/base-material?page={pagina}&per_page=100"
                        ).get("data") or []
         todos += lote
         if len(lote) < 100:
-            break
+            return todos
         pagina += 1
+    # Truncar em silêncio faria a busca de professor "não achar" alguém que
+    # existe — o usuário precisa saber que a lista veio pela metade.
+    print(f"  [aviso] parei na página {_MAX_PAGINAS_MB} do índice de Materiais Base "
+          f"({len(todos)} lidos) e ainda havia mais. A busca de professor pode não "
+          f"achar quem está nas páginas seguintes — aumente _MAX_PAGINAS_MB.")
     return todos
 
 
@@ -218,8 +220,11 @@ def buscar_professores_com_mb(sessao, termo):
         raise extrator_ldi.falha(
             f"Busque o professor com pelo menos {_MIN_TERMO_PROFESSOR} letras "
             "(tente só o sobrenome — a busca do LDI é de uma palavra só).")
-    usuarios = _get_mb(sessao, f"/bo/ldi/users?page=1&per_page=50&term={termo}"
-                       ).get("data") or []
+    # mesmo tratamento que extrator_ldi.listar_cursos dá ao search_term: o nome
+    # do professor pode ter espaço, acento ou "&" e não pode quebrar a query
+    usuarios = _get_mb(
+        sessao, f"/bo/ldi/users?page=1&per_page=50"
+                f"&term={requests.utils.quote(termo)}").get("data") or []
     por_dono = {}
     for mb in indice_de_mbs(sessao):
         por_dono.setdefault(mb.get("user_id"), []).append(
@@ -393,21 +398,28 @@ def coletar_mb(cfg, sessao, mb_id, caminho_banco, professor_nome="", progresso=N
         if not detalhe.get("id"):
             raise extrator_ldi.falha(f"Material Base não encontrado: {mb_id}")
         disciplina = (detalhe.get("name") or "").strip()
+        # Sem nome no diretório, o UUID VIRA o nome — em todo lugar, não só no
+        # termo. É o risco nº 2 do spec: a tela tem de mostrar o UUID, e não
+        # "professor sem nome no diretório", que parece defeito.
         professor = professor_nome or detalhe.get("user_id") or "?"
         ocultos = len(detalhe.get("hide_chapters") or [])
         capitulos = capitulos_do_mb(sessao, mb_id)
-        curso = parse_blocos.arvore_do_mb(detalhe, capitulos, professor_nome=professor_nome)
+        curso = parse_blocos.arvore_do_mb(detalhe, capitulos, professor_nome=professor)
 
         extracao_id = banco_conteudo.iniciar_extracao(
             con, f"MB · {professor} · {disciplina}", cfg["vertical"], tipo="mb",
-            professor_id=detalhe.get("user_id", ""), professor_nome=professor_nome,
+            professor_id=detalhe.get("user_id", ""), professor_nome=professor,
             disciplina=disciplina,
             classificacao_id=detalhe.get("main_classification_id", ""),
             capitulos_ocultos=ocultos)
         _, n_aulas = banco_conteudo.gravar_arvore(con, extracao_id, [curso])
         with con:  # todo item de MB está, por definição, no Material Base
             con.execute("UPDATE aulas SET vinculado_mb=1 WHERE extracao_id=?", (extracao_id,))
-        print(f"      {len(capitulos)} capítulos, {n_aulas} itens (snapshot #{extracao_id})"
+        # len(curso["content_tree_cache"]), não len(capitulos): arvore_do_mb
+        # descarta capítulo sem `id`, e este número é o gabarito do aceite
+        # ("36 capítulos") e da comparação dupla do risco nº 1 do spec.
+        print(f"      {len(curso['content_tree_cache'])} capítulos, {n_aulas} itens "
+              f"(snapshot #{extracao_id})"
               + (f" · {ocultos} capítulos ocultos pelo professor, fora desta coleta"
                  if ocultos else ""))
 
