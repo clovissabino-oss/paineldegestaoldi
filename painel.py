@@ -43,10 +43,14 @@ def caminho_banco():
     return os.path.join(PASTA_APP, cfg["pasta_saida"], "conteudo.db")
 
 
-def dados_do_snapshot(con):
-    """Agrega o snapshot mais recente da base num dict pronto para a tela.
-    Devolve None se ainda não houver coleta."""
-    ext = con.execute("SELECT * FROM extracoes ORDER BY id DESC LIMIT 1").fetchone()
+def dados_do_snapshot(con, tipo="curso"):
+    """Agrega o snapshot mais recente DO UNIVERSO pedido ('curso' ou 'mb').
+
+    O filtro por tipo não é decoração: sem ele, coletar um Material Base faria o
+    painel de cursos passar a mostrar o MB, que é a coleta de id mais alto."""
+    ext = con.execute(
+        "SELECT * FROM extracoes WHERE COALESCE(tipo,'curso')=? "
+        "ORDER BY id DESC LIMIT 1", (tipo,)).fetchone()
     if ext is None:
         return None
     e = ext["id"]
@@ -65,10 +69,14 @@ def dados_do_snapshot(con):
         "  ON a.extracao_id = c.extracao_id AND a.curso_id = c.curso_id "
         "WHERE c.extracao_id=? GROUP BY c.curso_id ORDER BY questoes DESC", (e,))]
     q_unicas = um("SELECT COUNT(*) FROM blocos WHERE extracao_id=? AND tipo='question'", e)
-    return {
+    resultado = {
         "extracao": {"id": e, "termo": ext["termo"], "iniciada_em": ext["iniciada_em"],
                      "status": ext["status"],
-                     "erros": len(json.loads(ext["erros_json"] or "{}"))},
+                     "erros": len(json.loads(ext["erros_json"] or "{}")),
+                     "tipo": ext["tipo"] or "curso",
+                     "professor_nome": ext["professor_nome"] or "",
+                     "disciplina": ext["disciplina"] or "",
+                     "capitulos_ocultos": ext["capitulos_ocultos"] or 0},
         "kpis": {
             "cursos_total": um("SELECT COUNT(*) FROM cursos WHERE extracao_id=?", e),
             "cursos_com_aulas": len(cursos),
@@ -105,6 +113,36 @@ def dados_do_snapshot(con):
         "tipos": tipos,
         "cursos": cursos,
     }
+    if (ext["tipo"] or "curso") == "mb":
+        resultado["cobertura"] = cobertura_mb(con, e)
+    return resultado
+
+
+def cobertura_mb(con, extracao_id):
+    """Quanto do Material Base chega de fato a um curso.
+
+    Compara contra a coleta MAIS RECENTE de cada curso do banco (universo 'curso').
+    Devolve também quantos cursos entraram na comparação — sem isso o percentual
+    mente: 35% contra um único concurso não é 35% do catálogo.
+    """
+    itens_mb = con.execute(
+        "SELECT COUNT(DISTINCT item_id) FROM aulas WHERE extracao_id=?",
+        (extracao_id,)).fetchone()[0] or 0
+    ultimas = con.execute(
+        "SELECT a.curso_id, MAX(a.extracao_id) FROM aulas a "
+        "JOIN extracoes x ON x.id = a.extracao_id "
+        "WHERE COALESCE(x.tipo,'curso')='curso' GROUP BY a.curso_id").fetchall()
+    if not ultimas:
+        return {"itens_mb": itens_mb, "itens_em_curso": 0, "cursos_comparados": 0}
+    pares = [(cid, eid) for cid, eid in ultimas]
+    marcas = " OR ".join(["(a.curso_id=? AND a.extracao_id=?)"] * len(pares))
+    valores = [v for par in pares for v in par]
+    em_curso = con.execute(
+        "SELECT COUNT(*) FROM (SELECT DISTINCT item_id FROM aulas WHERE extracao_id=?) m "
+        f"WHERE m.item_id IN (SELECT DISTINCT a.item_id FROM aulas a WHERE {marcas})",
+        (extracao_id, *valores)).fetchone()[0] or 0
+    return {"itens_mb": itens_mb, "itens_em_curso": em_curso,
+            "cursos_comparados": len(pares)}
 
 
 _DEPARA = {"cache": None, "carregado": False}
@@ -127,9 +165,11 @@ _RE_NUM_NOME = re.compile(r"^\s*(\d+)")
 def _chave_path(path):
     """'13.1' -> (13, 1). Devolve () quando não há nenhum componente numérico.
 
-    A ordem do LDI vem daqui: `capitulos.ordem` é zero em toda a base (a API manda
-    order_index=0), então o path da aula é a única fonte real de posição — e ele é
-    relativo ao curso (o mesmo item tem path diferente em cada pacote).
+    A ordem do LDI **de curso** vem daqui: `capitulos.ordem` é zero em toda
+    extração de curso (a API manda order_index=0), então o path da aula é a
+    única fonte real de posição — e ele é relativo ao curso (o mesmo item tem
+    path diferente em cada pacote). No Material Base é o contrário: ver
+    _chave_capitulo_mb.
     """
     partes = [p.strip() for p in str(path or "").split(".") if p.strip() != ""]
     if not any(p.isdigit() for p in partes):
@@ -148,6 +188,22 @@ def _chave_capitulo(paths, nome):
     if achado:
         return (0, (int(achado.group(1)),), nm)
     return (1, (), nm)
+
+
+def _chave_capitulo_mb(ordem, nome):
+    """Ordem do capítulo no Material Base: a POSIÇÃO devolvida pela API.
+
+    A regra do curso (menor path dos itens) NÃO vale aqui: no MB o path do item
+    é relativo ao capítulo e reinicia a cada um (medido na API real: um capítulo
+    com itens 14/14.1/14.2, outro começando em 1). Aplicá-la numera todo
+    capítulo como "1" e ordena por nome. `capitulos.ordem` guarda a posição real
+    do array da API (gravada por parse_blocos.arvore_do_mb) — é a fonte certa.
+
+    A posição da API é 0-based; a numeração exibida começa em 1. Nunca lança."""
+    nm = (nome or "").strip().lower()
+    if ordem is None:
+        return (1, (), nm)  # sem posição conhecida: fim, em ordem alfabética
+    return (0, (int(ordem) + 1,), nm)
 
 
 def _chave_item(path, nome):
@@ -228,17 +284,23 @@ def dados_avaliacao(con, curso_id, depara=None):
                     (curso_id,)).fetchone()[0]
     curso = con.execute("SELECT nome, autores FROM cursos WHERE extracao_id=? AND curso_id=?",
                         (e, curso_id)).fetchone()
+    # O universo decide de onde sai a ORDEM dos capítulos (e só isso): curso
+    # deriva do path dos itens, MB usa a posição da API. Ver _chave_capitulo_mb.
+    tipo = con.execute("SELECT COALESCE(tipo,'curso') FROM extracoes WHERE id=?",
+                       (e,)).fetchone()
+    eh_mb = (tipo[0] if tipo else "curso") == "mb"
     ano_atual = datetime.now().year
     corte_crit, corte_aten = ano_atual - 6, ano_atual - 3
 
     caps = []
-    for cap in con.execute("SELECT capitulo_id, nome FROM capitulos "
+    for cap in con.execute("SELECT capitulo_id, nome, ordem FROM capitulos "
                            "WHERE extracao_id=? AND curso_id=?", (e, curso_id)):
         linhas = con.execute(
             "SELECT item_id, nome, path, vinculado_mb FROM aulas "
             "WHERE extracao_id=? AND curso_id=? AND capitulo_id=?",
             (e, curso_id, cap["capitulo_id"])).fetchall()
-        chave_cap = _chave_capitulo([r["path"] for r in linhas], cap["nome"])
+        chave_cap = (_chave_capitulo_mb(cap["ordem"], cap["nome"]) if eh_mb
+                     else _chave_capitulo([r["path"] for r in linhas], cap["nome"]))
 
         itens, por_id = [], {}
         for r in linhas:
@@ -287,15 +349,19 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
+    universo = "mb" if request.args.get("universo") == "mb" else "curso"
     con = banco_conteudo.abrir(caminho_banco())
     try:
-        dados = dados_do_snapshot(con)
+        dados = dados_do_snapshot(con, tipo=universo)
     finally:
         con.close()
     if dados is None:
-        return Response("<h1>Sem coletas na base ainda.</h1>"
-                        "<p>Rode <code>py coletor_ldi.py --termo SEU_CONCURSO</code> "
-                        "e recarregue esta página.</p>", mimetype="text/html")
+        vazio = ("Nenhum Material Base coletado ainda.</h1>"
+                 "<p>Rode <code>py coletor_ldi.py --mb &lt;id do MB&gt;</code>"
+                 if universo == "mb" else
+                 "Sem coletas na base ainda.</h1>"
+                 "<p>Rode <code>py coletor_ldi.py --termo SEU_CONCURSO</code>")
+        return Response(f"<h1>{vazio} e recarregue esta página.</p>", mimetype="text/html")
     html = _html().replace("__DADOS__", json.dumps(dados, ensure_ascii=False))
     return Response(html, mimetype="text/html")
 
@@ -307,15 +373,42 @@ def avaliacao():
         return Response(f.read(), mimetype="text/html")
 
 
+def cursos_do_universo(con, universo):
+    """As linhas do seletor de disciplina da /avaliacao.
+
+    Os dois universos têm cardinalidade diferente, e é por isso que a consulta
+    também é:
+
+    - **curso**: uma extração = um concurso inteiro (muitos cursos). O seletor é
+      a coleta mais recente — que é o que a tela sempre mostrou. NÃO MUDA.
+    - **mb**: cada Material Base é uma extração PRÓPRIA. Pegar a de maior id
+      deixaria só o último MB coletado alcançável na tela. Aqui listamos todos
+      os MBs do banco, um por curso_id, pela coleta mais recente de cada — o
+      mesmo padrão de cobertura_mb.
+    """
+    if universo == "mb":
+        sql = ("SELECT c.curso_id, c.nome, c.autores FROM cursos c "
+               "JOIN (SELECT a.curso_id cid, MAX(a.extracao_id) eid FROM aulas a "
+               "      JOIN extracoes x ON x.id = a.extracao_id "
+               "      WHERE COALESCE(x.tipo,'curso')='mb' GROUP BY a.curso_id) u "
+               "  ON u.cid = c.curso_id AND u.eid = c.extracao_id "
+               "ORDER BY c.nome")
+        return [dict(r) for r in con.execute(sql)]
+    r = con.execute("SELECT MAX(id) FROM extracoes "
+                    "WHERE COALESCE(tipo,'curso')='curso'").fetchone()
+    e = r[0] or 0
+    return [dict(r) for r in con.execute(
+        "SELECT c.curso_id, c.nome, c.autores FROM cursos c WHERE c.extracao_id=? "
+        "AND EXISTS (SELECT 1 FROM aulas a WHERE a.extracao_id=c.extracao_id "
+        "AND a.curso_id=c.curso_id) ORDER BY c.nome", (e,))]
+
+
 @app.route("/api/cursos")
 def api_cursos():
+    universo = "mb" if request.args.get("universo") == "mb" else "curso"
     con = banco_conteudo.abrir(caminho_banco())
     try:
-        e = con.execute("SELECT MAX(id) FROM extracoes").fetchone()[0] or 0
-        rows = [dict(r) for r in con.execute(
-            "SELECT c.curso_id, c.nome, c.autores FROM cursos c WHERE c.extracao_id=? "
-            "AND EXISTS (SELECT 1 FROM aulas a WHERE a.extracao_id=c.extracao_id "
-            "AND a.curso_id=c.curso_id) ORDER BY c.nome", (e,))]
+        rows = cursos_do_universo(con, universo)
     finally:
         con.close()
     return {"data": rows}

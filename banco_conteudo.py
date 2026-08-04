@@ -83,7 +83,13 @@ def abrir(caminho):
     for sql in ("ALTER TABLE blocos ADD COLUMN banca TEXT",
                 "ALTER TABLE blocos ADD COLUMN ano INTEGER",
                 "ALTER TABLE blocos ADD COLUMN qtd_questoes_texto INTEGER",
-                "ALTER TABLE aulas ADD COLUMN vinculado_mb INTEGER"):
+                "ALTER TABLE aulas ADD COLUMN vinculado_mb INTEGER",
+                "ALTER TABLE extracoes ADD COLUMN tipo TEXT NOT NULL DEFAULT 'curso'",
+                "ALTER TABLE extracoes ADD COLUMN professor_id TEXT DEFAULT ''",
+                "ALTER TABLE extracoes ADD COLUMN professor_nome TEXT DEFAULT ''",
+                "ALTER TABLE extracoes ADD COLUMN disciplina TEXT DEFAULT ''",
+                "ALTER TABLE extracoes ADD COLUMN classificacao_id TEXT DEFAULT ''",
+                "ALTER TABLE extracoes ADD COLUMN capitulos_ocultos INTEGER DEFAULT 0"):
         try:
             con.execute(sql)
         except sqlite3.OperationalError as e:
@@ -93,11 +99,18 @@ def abrir(caminho):
     return con
 
 
-def iniciar_extracao(con, termo, vertical):
+def iniciar_extracao(con, termo, vertical, tipo="curso", professor_id="",
+                      professor_nome="", disciplina="", classificacao_id="",
+                      capitulos_ocultos=0):
+    """Abre um snapshot. tipo='mb' identifica coleta de Material Base de professor —
+    os demais campos só se aplicam a ela e ficam vazios num curso."""
     with con:
         cur = con.execute(
-            "INSERT INTO extracoes(termo, vertical, iniciada_em) VALUES(?,?,?)",
-            (termo, vertical, _agora()))
+            "INSERT INTO extracoes(termo, vertical, iniciada_em, tipo, professor_id, "
+            "professor_nome, disciplina, classificacao_id, capitulos_ocultos) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (termo, vertical, _agora(), tipo, professor_id, professor_nome,
+             disciplina, classificacao_id, int(capitulos_ocultos or 0)))
     return cur.lastrowid
 
 

@@ -198,14 +198,25 @@ def carregar_depara():
         return json.load(f)
 
 
+def ultima_extracao_de_curso(con):
+    """Regra de qualidade só vale para o universo de curso: rodar sobre um Material
+    Base daria baixa automática em pendências de curso que continuam abertas."""
+    r = con.execute("SELECT id FROM extracoes WHERE COALESCE(tipo,'curso')='curso' "
+                    "ORDER BY id DESC LIMIT 1").fetchone()
+    return r[0] if r else None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Motor de qualidade (pendências)")
     parser.add_argument("--extracao", type=int, help="id da extração (padrão: a mais recente)")
     args = parser.parse_args()
     con = banco_conteudo.abrir(os.path.join(PASTA_APP, "saida", "conteudo.db"))
     try:
-        eid = args.extracao or con.execute(
-            "SELECT id FROM extracoes ORDER BY id DESC LIMIT 1").fetchone()[0]
+        eid = args.extracao or ultima_extracao_de_curso(con)
+        if eid is None:
+            print("Nenhuma coleta de curso na base — as regras de qualidade não se "
+                  "aplicam ao Material Base.")
+            return
         print(f"Avaliando regras sobre a extração #{eid}...")
         r = avaliar(con, eid, depara=carregar_depara())
         print(f"novas: {r['novas']} | reabertas: {r['reabertas']} | resolvidas: {r['resolvidas']}")

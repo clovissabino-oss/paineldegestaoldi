@@ -54,12 +54,23 @@ def depara_do_supabase(rest, key, con, extracao_id):
     return depara
 
 
+def extracao_publicavel(con):
+    """A coleta mais recente que PODE ir para a web: só universo de curso.
+
+    Material Base não é publicado (a chave da view snapshot_atual é por termo, e
+    dois MBs da mesma disciplina colidiriam) — ver o spec do Material Base.
+    """
+    return con.execute(
+        "SELECT * FROM extracoes WHERE COALESCE(tipo,'curso')='curso' "
+        "ORDER BY id DESC LIMIT 1").fetchone()
+
+
 def montar_payload(con):
     """Monta as linhas de upsert a partir do snapshot mais recente do conteudo.db.
 
     Devolve None se a base ainda não tem coletas. A agregação é a MESMA do
     painel.py (garantia de paridade com a tela aprovada)."""
-    ext = con.execute("SELECT * FROM extracoes ORDER BY id DESC LIMIT 1").fetchone()
+    ext = extracao_publicavel(con)
     if ext is None:
         return None
     url, key = _config()

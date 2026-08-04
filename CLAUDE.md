@@ -29,8 +29,16 @@ py coletor_ldi.py [--termo X] [--continuar] [--com-videos] [--agendado]
 #   varre TODOS os blocos (questões c/ banca-ano, textos c/ questões coladas, PDFs, vídeos,
 #   professores) → snapshots em saida\conteudo.db; ao final roda as regras de qualidade
 py regras_qualidade.py [--extracao N]              # motor de pendências avulso (baixa automática)
+
+# Material Base do professor (o acervo dele, ao lado do LDI de curso):
+py coletor_ldi.py --mb-professor "Ciciliati"       # acha o professor e IMPRIME o comando pronto
+py coletor_ldi.py --mb <id ou URL do MB> --professor "Profa Nilza Ciciliati"
+#   --mb sozinho funciona (o professor fica com o UUID); --professor só vale junto com --mb.
+#   NÃO roda regras de qualidade nem publica no Supabase — ver a Arquitetura.
+
 py painel.py [--sem-navegador]                     # painel em http://127.0.0.1:8766
 #   / = inventário · /avaliacao = planilha de avaliação por disciplina (CSV/print)
+#   ?universo=mb (e o seletor da /avaliacao) trocam para o universo Material Base
 py exclusao_coleta.py --listar                     # coletas do conteudo.db LOCAL (+ quais estão na web)
 py exclusao_coleta.py --excluir N [--compactar]    # apaga a extração N daqui e devolve o disco
 #   só mexe no arquivo local — NÃO toca no Supabase (a /admin tem tela própria p/ isso)
@@ -86,6 +94,16 @@ via `GET /bo/ldi/chapters/{id}/items` — o `has_base_material` de item, não o 
 subnotifica) e grava `aulas.vinculado_mb` (1/0/NULL). O painel expõe: KPI "itens no Material
 Base", achado "N aulas com itens fora do MB" e coluna por aula na Avaliação (o denominador só
 conta itens com vínculo conhecido — NULL = "—").
+
+**Dois universos numa base só**: `extracoes.tipo` (`'curso'`|`'mb'`) separa a coleta de curso
+da coleta do **Material Base** do professor (`coletor_ldi.coletar_mb`, spec
+`docs\superpowers\specs\2026-08-03-coleta-material-base-design.md`). O MB entra nas MESMAS
+tabelas (o `item_id` do curso É o do MB — o cruzamento é um join), com uma linha sintética em
+`cursos` (`curso_id` = `mb_id`). MB **não** roda regras de qualidade (o motor dá baixa
+automática e resolveria em massa pendências de curso que continuam abertas) e **não** é
+publicado no Supabase (a view `snapshot_atual` é por termo e MBs da mesma disciplina
+colidiriam). Toda agregação do painel passa o tipo explícito; a ordem dos capítulos vem do
+`path` dos itens no curso e de `capitulos.ordem` (posição real da API) no MB.
 
 3. **`visualizador.py` + `ui.html`** — servidor Flask (porta 8765) que serve a `ui.html`
    (single-file, ~100 KB, todo o front em JS vanilla inline) e expõe a API local:

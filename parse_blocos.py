@@ -70,6 +70,73 @@ def contagens_da_aula(item):
     return c
 
 
+def _menos(total, filhos):
+    """Contagem PRÓPRIA de um nó: o que a API atribui a ele menos o que já é dos filhos.
+    O type_count do LDI é cumulativo (medido: pai com 149 questões = soma dos 7 filhos),
+    então achatar sem descontar dobraria o capítulo."""
+    proprio = {}
+    for chave, n in (total or {}).items():
+        resto = (n or 0) - sum((f.get(chave) or 0) for f in filhos)
+        if resto > 0:
+            proprio[chave] = resto
+    return proprio
+
+
+def _achatar_itens(nos, saida):
+    """Item -> aula, com os sub-itens virando aulas irmãs (o path do LDI já é absoluto
+    dentro do capítulo: '14' -> '14.1'). Devolve saida, na ordem pai, filhos."""
+    for no in (nos or []):
+        if not isinstance(no, dict) or not no.get("id"):
+            continue
+        filhos = [f for f in (no.get("items") or []) if isinstance(f, dict)]
+        tc = no.get("type_count") or {}
+        saida.append({
+            "item_id": no["id"],
+            "name": no.get("name") or no.get("title") or "",
+            "title": no.get("title") or "",
+            "path": no.get("path") or "",
+            "updated_at": "",  # o MB não devolve updated_at
+            "block_type_count": _menos(
+                tc.get("block_type_count"),
+                [(f.get("type_count") or {}).get("block_type_count") or {} for f in filhos]),
+            "simple_block_type_count": _menos(
+                tc.get("simple_block_type_count"),
+                [(f.get("type_count") or {}).get("simple_block_type_count") or {}
+                 for f in filhos]),
+        })
+        _achatar_itens(filhos, saida)
+    return saida
+
+
+def arvore_do_mb(detalhe, capitulos, professor_nome=""):
+    """Material Base -> curso sintético no formato do content_tree_cache, para que
+    banco_conteudo.gravar_arvore seja reusado sem alteração.
+
+    detalhe   = data de GET /bo/ldi/base-material/{id}
+    capitulos = data de GET /bo/ldi/base-material/{id}/chapters?per_page=100
+    """
+    caps = []
+    for ordem, cap in enumerate(capitulos or []):
+        if not isinstance(cap, dict) or not cap.get("id"):
+            continue
+        caps.append({
+            "chapter_id": cap["id"],
+            "name": cap.get("name") or cap.get("title") or "",
+            "order_index": ordem,   # o path do capítulo vem vazio; a ordem é a do array
+            "chapter_version": "",
+            "published_at": "",
+            "items": _achatar_itens(cap.get("items"), []),
+        })
+    return {
+        "id": detalhe.get("id", ""),
+        "name": (detalhe.get("name") or "").strip(),
+        "published": False,
+        "created_at": detalhe.get("created_at", ""),
+        "authors_name": professor_nome or "",
+        "content_tree_cache": caps,
+    }
+
+
 def vinculo_mb_dos_itens(data_itens):
     """De GET /bo/ldi/chapters/{id}/items: {item_id: has_base_material(bool)}.
     A API devolve data como dict {"items": [...]}; aceita também a lista direta.

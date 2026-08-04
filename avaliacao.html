@@ -85,7 +85,15 @@
     recolha o concurso para ver a ordem do curso e abrir os itens.</p>
 
   <div class="barra">
-    <label>Disciplina:
+    <!-- universo e disciplina são DOIS controles: o <label>Disciplina</label> nomeia
+         só o selCurso (aninhar o selUniverso nele o batizava de "Disciplina"). -->
+    <label for="selUniverso">Universo:
+      <select id="selUniverso">
+        <option value="curso">📚 Cursos (LDI)</option>
+        <option value="mb">🎓 Material Base</option>
+      </select>
+    </label>
+    <label for="selCurso">Disciplina:
       <select id="selCurso"><option value="">carregando...</option></select>
     </label>
     <label>Banca-alvo:
@@ -102,7 +110,7 @@
   <div class="tbl-box"><table id="tbl">
     <thead><tr>
       <th>Aula (LDI)</th>
-      <th>Itens no MB</th>
+      <th id="thItensMB">Itens no MB</th>
       <th>Questões<br>emb. + texto</th>
       <th data-alvo>Distribuição<br>por banca</th>
       <th id="thAnosQ">% por ano da prova</th>
@@ -134,6 +142,11 @@
 
   let D = null;
 
+  // A coluna "Itens no MB" mede quanto de um curso veio do Material Base. No
+  // universo MB ela é 100% por definição (todo item de um MB está no MB) e some
+  // da tela, do CSV e do relatório — ver o spec, seção 4.
+  const ehMB = () => document.getElementById("selUniverso").value === "mb";
+
   // índices dos capítulos abertos. Fica FORA do render porque a tabela é redesenhada
   // inteira ao trocar a banca-alvo — sem isso, trocar a banca fecharia tudo.
   const ABERTOS = new Set();
@@ -152,14 +165,36 @@
   }
 
   async function carregarCursos() {
-    const r = await fetch("/api/cursos");
+    // troca de universo: zera o que estava renderizado da disciplina anterior — senão o
+    // que ficou na tela parece pertencer ao novo universo escolhido.
+    D = null;
+    ABERTOS.clear();
+    document.getElementById("titulo").textContent = "Escolha uma disciplina";
+    document.getElementById("autores").textContent = "";
+    document.getElementById("corpo").innerHTML = "";
+    document.getElementById("dash").innerHTML = "";
+    document.getElementById("selBanca").innerHTML = '<option value="">— sem banca-alvo —</option>';
+    document.getElementById("avisoAntigo").hidden = true;
+    // quem escondeu estes dois foi o render() da disciplina ANTERIOR (snapshot
+    // antigo, ou universo MB) — sem restaurar, o controle some para sempre.
+    document.getElementById("btnExpandir").hidden = false;
+    document.getElementById("thItensMB").hidden = ehMB();
+
+    const universo = document.getElementById("selUniverso").value;
+    const r = await fetch("/api/cursos?universo=" + encodeURIComponent(universo));
     const cursos = (await r.json()).data;
     const sel = document.getElementById("selCurso");
     sel.innerHTML = '<option value="">— escolha —</option>' + cursos.map(c =>
       `<option value="${c.curso_id}">${c.nome.trim()}</option>`).join("");
-    sel.addEventListener("change", () => sel.value && carregarAvaliacao(sel.value));
     if (cursos.length === 1) { sel.value = cursos[0].curso_id; carregarAvaliacao(sel.value); }
   }
+  // ligado uma única vez fora da função — carregarCursos roda de novo a cada troca de
+  // universo e reatribuiria outro listener ao mesmo <select> se ficasse aqui dentro.
+  document.getElementById("selCurso").addEventListener("change", () => {
+    const sel = document.getElementById("selCurso");
+    sel.value && carregarAvaliacao(sel.value);
+  });
+  document.getElementById("selUniverso").addEventListener("change", carregarCursos);
 
   async function carregarAvaliacao(cursoId) {
     const r = await fetch("/api/avaliacao?curso_id=" + encodeURIComponent(cursoId));
@@ -208,11 +243,12 @@
       : `<td class="cap-nm"><button class="exp${(c.itens || []).length ? "" : " vazio-cap"}"
              onclick="alternar(${idx})" aria-expanded="${aberto}"
              aria-label="${aberto ? "recolher" : "expandir"} ${esc(nome)}">${aberto ? "▼" : "▶"}</button>${pos}${nome}<small>${c.aulas} itens</small></td>`;
+    const celMB = ehMB() ? "" : `<td class="num">${c.itens_total
+            ? `<b style="color:${c.itens_mb === c.itens_total ? "var(--ok)" : "var(--warn)"}">${c.itens_mb}/${c.itens_total}</b>`
+            : "—"}</td>`;
     return `<tr${ehItem ? ' class="item"' : ""}>
         ${cel1}
-        <td class="num">${c.itens_total
-            ? `<b style="color:${c.itens_mb === c.itens_total ? "var(--ok)" : "var(--warn)"}">${c.itens_mb}/${c.itens_total}</b>`
-            : "—"}</td>
+        ${celMB}
         <td class="num">${fmt(totQ)}<br><small style="color:var(--ink-3)">${c.q_emb} emb. + ${c.q_txt} texto</small></td>
         <td class="num">${totQ === 0 ? '<span class="vazio">—</span>' : banca
           ? `${alvo} / ${totQ - alvo}<br><b>${pc(alvo, totQ)}</b> banca-alvo`
@@ -238,6 +274,7 @@
     const payloadAntigo = D.capitulos.length > 0 && !("itens" in D.capitulos[0]);
     document.getElementById("btnExpandir").hidden = payloadAntigo;
     document.getElementById("avisoAntigo").hidden = !payloadAntigo;
+    document.getElementById("thItensMB").hidden = ehMB();
     const banca = document.getElementById("selBanca").value;
     document.querySelector("[data-alvo]").innerHTML = banca
       ? "Qtd. banca-alvo /<br>outras · %" : "Distribuição<br>por banca";
@@ -272,7 +309,9 @@
     if (!D) return;
     const banca = document.getElementById("selBanca").value;
     const escCsv = s => `"${String(s ?? "").replace(/"/g, '""')}"`;
-    const linhas = [["nivel", "num", "capitulo", "aulas", "itens_no_mb", "questoes_total",
+    const semMB = ehMB();   // no MB a coluna é 100% por definição — sai do arquivo
+    const linhas = [["nivel", "num", "capitulo", "aulas",
+      ...(semMB ? [] : ["itens_no_mb"]), "questoes_total",
       "questoes_embedadas", "questoes_em_texto",
       "qtd_banca_alvo", "qtd_outras_bancas", "pct_banca_alvo",
       "pct_prova_faixa_critica", "pct_prova_faixa_media", "pct_prova_faixa_recente", "questoes_com_prova",
@@ -286,7 +325,8 @@
       const totQ = c.q_emb + c.q_txt;
       const alvo = banca ? (c.bancas[banca] || 0) : "";
       linhas.push([nivel, c.num || "", c.nome, c.aulas,
-        c.itens_total ? `${c.itens_mb}/${c.itens_total}` : "—", totQ, c.q_emb, c.q_txt,
+        ...(semMB ? [] : [c.itens_total ? `${c.itens_mb}/${c.itens_total}` : "—"]),
+        totQ, c.q_emb, c.q_txt,
         alvo, banca ? totQ - alvo : "", banca ? pc(alvo, totQ) : "",
         pc(c.q_ate, c.q_com_ano), pc(c.q_meio, c.q_com_ano), pc(c.q_novo, c.q_com_ano), c.q_com_ano,
         c.sol_texto, c.sol_video, c.vids, dur(c.dur), c.v_com_data,
@@ -321,10 +361,11 @@
          ><i style="flex:${c || 0};background:#1c6e38"></i></span>`
       : '<span class="vaz">—</span>';
 
+    const semMB = ehMB();   // no MB a coluna é 100% por definição — sai do relatório
     const celulas = c => {
       const { totQ, alvo, bancasTxt } = valoresLinha(c);
-      return `
-        <span class="nums">${c.itens_total ? `${c.itens_mb}/${c.itens_total}` : "—"}</span>
+      return `${semMB ? "" : `
+        <span class="nums">${c.itens_total ? `${c.itens_mb}/${c.itens_total}` : "—"}</span>`}
         <span class="nums">${fmt(totQ)}<small>${c.q_emb} emb. + ${c.q_txt} texto</small></span>
         <span>${totQ === 0 ? '<span class="vaz">—</span>' : banca
           ? `${alvo} / ${totQ - alvo}<br><b>${pc(alvo, totQ)}</b>`
@@ -363,7 +404,9 @@
       [pc(tot("v_novo"), tot("v_com_data")), `% vídeos gravados ${ANO - 2}-${ANO}`],
     ].filter(Boolean).map(([n, l]) => `<div class="kpi"><b>${n}</b><span>${esc(l)}</span></div>`).join("");
 
-    const COLS = "minmax(230px,2.2fr) 78px 110px 150px 132px 148px 104px 132px";
+    // a 2ª faixa é a coluna "Itens no MB" — cai junto com ela no universo MB,
+    // senão o grid fica com uma coluna vazia no meio de todas as linhas
+    const COLS = `minmax(230px,2.2fr)${semMB ? "" : " 78px"} 110px 150px 132px 148px 104px 132px`;
     const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <title>Avaliação — ${esc(D.curso.trim())} — ${agora.toLocaleDateString("pt-BR")}</title>
 <style>
@@ -412,7 +455,7 @@
 </header>
 ${payloadAntigo ? '<div class="aviso">⚠ Este snapshot é anterior à visão por item — recolha o concurso para ver a ordem do curso e abrir os itens.</div>' : ""}
 <div class="kpis">${kpis}</div>
-<div class="tblcab"><span>Aula (LDI)</span><span>Itens no MB</span><span>Questões</span>
+<div class="tblcab"><span>Aula (LDI)</span>${semMB ? "" : "<span>Itens no MB</span>"}<span>Questões</span>
   <span>${banca ? "Banca-alvo" : "Bancas"}</span><span>% ano da prova ${esc(ROTULO)}</span>
   <span>Soluções 📝 · 🎬</span><span>Vídeos qtd · tempo</span>
   <span>% ano de gravação ${esc(ROTULO)}</span></div>

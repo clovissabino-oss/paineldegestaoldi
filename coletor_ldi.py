@@ -13,6 +13,13 @@
        --continuar   retoma a coleta interrompida/parcial mais recente do termo
        --com-videos  além da base, emite o videos_*.json/csv clássico
        --agendado    não pede ENTER no final (p/ Agendador de Tarefas)
+
+ Material Base do professor (universo separado — não roda regras de
+ qualidade nem publica no Supabase):
+       --mb-professor NOME  busca o professor e imprime o comando pronto de cada MB dele
+       --mb ID_OU_URL       coleta esse Material Base (UUID ou URL do admin)
+       --professor NOME     nome a rotular na coleta; só vale junto com --mb
+                            (sem ele, o professor fica com o UUID do LDI)
 ============================================================
 """
 import argparse
@@ -146,6 +153,96 @@ def _completar_vinculo_mb(sessao, con, extracao_id, cursos, concorrencia):
     if recebidos and not casadas:
         print("      ⚠ vínculo de MB: recebi itens da API mas nenhum casou com a árvore "
               "(possível mudança de formato do endpoint) — vinculado_mb ficou vazio.")
+
+
+# ── Material Base do professor (universo separado do LDI de curso) ──────────
+
+_MIN_TERMO_PROFESSOR = 3
+
+
+def extrair_id_mb(texto):
+    """UUID do MB a partir de um UUID solto ou da URL do admin
+    (…/base-material/edit?id=<uuid>&team_id). Pega SEMPRE o id=, nunca o team_id=."""
+    tok = (texto or "").strip()
+    m = re.search(rf"[?&]id=({_UUID})", tok)
+    if m:
+        return m.group(1).lower()
+    if re.fullmatch(_UUID, tok):
+        return tok.lower()
+    raise extrator_ldi.falha(f"Não achei um ID de Material Base em: {tok[:60]}")
+
+
+def _get_mb(sessao, caminho):
+    """GET no LDI pelo caminho relativo, com o MESMO tratamento do resto do
+    projeto: 4 tentativas com backoff em 429/5xx e em falha de rede, e 401/403
+    imprimindo o motivo ANTES de levantar CookieVencido — sem isso o usuário
+    via só "Pressione ENTER para fechar"."""
+    return extrator_ldi.get_json(sessao, f"{extrator_ldi.API}{caminho}")
+
+
+def obter_mb(sessao, mb_id):
+    """Detalhe do Material Base: name (disciplina), user_id, hide_chapters."""
+    return _get_mb(sessao, f"/bo/ldi/base-material/{mb_id}").get("data") or {}
+
+
+def capitulos_do_mb(sessao, mb_id):
+    """A árvore INTEIRA numa requisição (medido: 36 capítulos, 366 KB, 1,1 s)."""
+    return _get_mb(sessao, f"/bo/ldi/base-material/{mb_id}/chapters?page=1&per_page=100"
+                   ).get("data") or []
+
+
+_MAX_PAGINAS_MB = 10  # trava de segurança; hoje são 4 páginas (387 MBs)
+
+
+def indice_de_mbs(sessao):
+    """Os ~387 MBs da base. Serve para saber QUEM é professor: o LDI não tem
+    endpoint de professores, e a busca de usuários devolve alunos também."""
+    todos, pagina = [], 1
+    while pagina <= _MAX_PAGINAS_MB:
+        lote = _get_mb(sessao, f"/bo/ldi/base-material?page={pagina}&per_page=100"
+                       ).get("data") or []
+        todos += lote
+        if len(lote) < 100:
+            return todos
+        pagina += 1
+    # Truncar em silêncio faria a busca de professor "não achar" alguém que
+    # existe — o usuário precisa saber que a lista veio pela metade.
+    print(f"  [aviso] parei na página {_MAX_PAGINAS_MB} do índice de Materiais Base "
+          f"({len(todos)} lidos) e ainda havia mais. A busca de professor pode não "
+          "achar quem está nas páginas seguintes — aumente _MAX_PAGINAS_MB.")
+    return todos
+
+
+def buscar_professores_com_mb(sessao, termo):
+    """Busca no diretório do LDI e devolve SÓ quem tem Material Base.
+
+    O `users?term=` varre todos os usuários (alunos inclusive), ignora per_page e
+    devolve ~50 sem ranking — sozinho ele é inútil. Cruzar com o índice de MBs é o
+    que transforma isso numa busca de professor.
+    """
+    termo = (termo or "").strip()
+    if len(termo) < _MIN_TERMO_PROFESSOR:
+        raise extrator_ldi.falha(
+            f"Busque o professor com pelo menos {_MIN_TERMO_PROFESSOR} letras "
+            "(tente só o sobrenome — a busca do LDI é de uma palavra só).")
+    # mesmo tratamento que extrator_ldi.listar_cursos dá ao search_term: o nome
+    # do professor pode ter espaço, acento ou "&" e não pode quebrar a query
+    usuarios = _get_mb(
+        sessao, f"/bo/ldi/users?page=1&per_page=50"
+                f"&term={requests.utils.quote(termo)}").get("data") or []
+    por_dono = {}
+    for mb in indice_de_mbs(sessao):
+        por_dono.setdefault(mb.get("user_id"), []).append(
+            {"id": mb.get("id"), "disciplina": (mb.get("name") or "").strip()})
+    achados = []
+    for u in usuarios:
+        mbs = por_dono.get(u.get("id"))
+        if mbs:
+            achados.append({"user_id": u.get("id"),
+                            "nome": u.get("full_name") or u.get("id"),
+                            "email": u.get("email") or "",
+                            "mbs": sorted(mbs, key=lambda m: m["disciplina"])})
+    return achados
 
 
 def _baixar_lote(sessao, con, extracao_id, pendentes, concorrencia,
@@ -292,6 +389,64 @@ def coletar(cfg, sessao, termo, caminho_banco, continuar=False, com_videos=False
         con.close()
 
 
+def coletar_mb(cfg, sessao, mb_id, caminho_banco, professor_nome="", progresso=None):
+    """Coleta o Material Base de um professor (universo separado do LDI de curso).
+
+    Do item para baixo é o mesmo caminho da coleta de curso (_baixar_lote); só a
+    origem da árvore muda. NÃO roda regras de qualidade nem publica no Supabase —
+    ver o spec 2026-08-03-coleta-material-base-design.md.
+    """
+    con = banco_conteudo.abrir(caminho_banco)
+    try:
+        print(f"[1/4] Lendo o Material Base {mb_id}...")
+        detalhe = obter_mb(sessao, mb_id)
+        if not detalhe.get("id"):
+            raise extrator_ldi.falha(f"Material Base não encontrado: {mb_id}")
+        disciplina = (detalhe.get("name") or "").strip()
+        # Sem nome no diretório, o UUID VIRA o nome — em todo lugar, não só no
+        # termo. É o risco nº 2 do spec: a tela tem de mostrar o UUID, e não
+        # "professor sem nome no diretório", que parece defeito.
+        professor = professor_nome or detalhe.get("user_id") or "?"
+        ocultos = len(detalhe.get("hide_chapters") or [])
+        capitulos = capitulos_do_mb(sessao, mb_id)
+        curso = parse_blocos.arvore_do_mb(detalhe, capitulos, professor_nome=professor)
+
+        extracao_id = banco_conteudo.iniciar_extracao(
+            con, f"MB · {professor} · {disciplina}", cfg["vertical"], tipo="mb",
+            professor_id=detalhe.get("user_id", ""), professor_nome=professor,
+            disciplina=disciplina,
+            classificacao_id=detalhe.get("main_classification_id", ""),
+            capitulos_ocultos=ocultos)
+        _, n_aulas = banco_conteudo.gravar_arvore(con, extracao_id, [curso])
+        with con:  # todo item de MB está, por definição, no Material Base
+            con.execute("UPDATE aulas SET vinculado_mb=1 WHERE extracao_id=?", (extracao_id,))
+        # len(curso["content_tree_cache"]), não len(capitulos): arvore_do_mb
+        # descarta capítulo sem `id`, e este número é o gabarito do aceite
+        # ("36 capítulos") e da comparação dupla do risco nº 1 do spec.
+        print(f"      {len(curso['content_tree_cache'])} capítulos, {n_aulas} itens "
+              f"(snapshot #{extracao_id})"
+              + (f" · {ocultos} capítulos ocultos pelo professor, fora desta coleta"
+                 if ocultos else ""))
+
+        pendentes = banco_conteudo.aulas_pendentes(con, extracao_id)
+        print(f"[2/4] {len(pendentes)} itens a baixar")
+        print(f"[3/4] Baixando blocos ({cfg['concorrencia']} por vez)...")
+        erros = _baixar_lote(sessao, con, extracao_id, pendentes,
+                             cfg["concorrencia"], None, progresso)
+        if erros:
+            print(f"      retry de {len(erros)} itens com falha...")
+            erros = _baixar_lote(sessao, con, extracao_id, list(erros),
+                                 cfg["concorrencia"], None, progresso)
+        status = banco_conteudo.finalizar_extracao(con, extracao_id, erros)
+        tot = con.execute("SELECT total_aulas, total_blocos FROM extracoes WHERE id=?",
+                          (extracao_id,)).fetchone()
+        print(f"[4/4] Coleta {status}: {tot[0]} itens, {tot[1]} blocos")
+        print("      (Material Base não roda regras de qualidade nem publica na web)")
+        return extracao_id
+    finally:
+        con.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Coletor LDI — conteúdo completo por concurso (somente leitura)")
@@ -304,6 +459,12 @@ def main():
                         help="retoma a coleta interrompida/parcial mais recente do termo")
     parser.add_argument("--com-videos", action="store_true",
                         help="além da base, emite o videos_*.json/csv clássico")
+    parser.add_argument("--mb", help="coleta o Material Base de um professor "
+                                     "(UUID ou URL do admin)")
+    parser.add_argument("--mb-professor", dest="mb_professor",
+                        help="busca o professor pelo nome e lista os Materiais Base dele")
+    parser.add_argument("--professor", help="nome do professor a rotular na coleta do MB "
+                                            "(o --mb-professor imprime o comando pronto com ele)")
     parser.add_argument("--agendado", action="store_true", help="não pede ENTER no final")
     args = parser.parse_args()
 
@@ -311,6 +472,8 @@ def main():
     if args.continuar and args.com_videos:
         raise extrator_ldi.falha("--com-videos não funciona com --continuar "
                                  "(rode uma coleta nova).")
+    if args.professor and not args.mb:
+        raise extrator_ldi.falha("--professor só vale acompanhado de --mb.")
     if args.ids:
         if not args.rotulo:
             raise extrator_ldi.falha("--ids exige --rotulo (o nome do concurso no app).")
@@ -324,6 +487,24 @@ def main():
         termo = args.termo or cfg["termo_busca"]
     sessao = extrator_ldi.montar_sessao(cfg, extrator_ldi.carregar_cookie())
     caminho = os.path.join(extrator_ldi.PASTA_APP, cfg["pasta_saida"], "conteudo.db")
+
+    if args.mb_professor:
+        achados = buscar_professores_com_mb(sessao, args.mb_professor)
+        if not achados:
+            print(f'Nenhum professor com Material Base para "{args.mb_professor}".\n'
+                  "Tente só o sobrenome — a busca do LDI é de uma palavra só.")
+            return
+        for a in achados:
+            print(f"\n{a['nome']}  <{a['email']}>  ({a['user_id']})")
+            for mb in a["mbs"]:
+                print(f'   py coletor_ldi.py --mb {mb["id"]} --professor "{a["nome"]}"'
+                      f'   # {mb["disciplina"]}')
+        return
+
+    if args.mb:
+        mb_id = extrair_id_mb(args.mb)
+        coletar_mb(cfg, sessao, mb_id, caminho, professor_nome=args.professor or "")
+        return
 
     print("=" * 60)
     print(f" COLETOR LDI  |  termo: {termo}  |  banco: {caminho}")
