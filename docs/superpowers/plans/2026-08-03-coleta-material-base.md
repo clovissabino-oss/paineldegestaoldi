@@ -939,14 +939,15 @@ E, no corpo de `main()`, **antes** do fluxo de coleta de curso (logo depois de m
     if args.mb:
         mb_id = extrair_id_mb(args.mb)
         nome = ""
+        detalhe = obter_mb(sessao, mb_id)
         try:  # o nome do professor não vem no MB; resolve-se pelo diretório
-            detalhe = obter_mb(sessao, mb_id)
             for a in buscar_professores_com_mb(sessao, (detalhe.get("name") or "")[:20]):
                 if a["user_id"] == detalhe.get("user_id"):
                     nome = a["nome"]
                     break
-        except Exception:
-            pass
+        except Exception as e:  # o nome é enriquecimento: sem ele o UUID aparece
+            print(f"      (não consegui resolver o nome do professor: {e} — "
+                  "o UUID vai aparecer no lugar)")
         coletar_mb(cfg, sessao, mb_id, caminho, professor_nome=nome)
         return
 ```
