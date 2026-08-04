@@ -93,6 +93,59 @@ class TestUniversos(unittest.TestCase):
         self.assertEqual([c["curso_id"] for c in mb], ["mb-1"])
 
 
+class TestSeletorDeMBs(unittest.TestCase):
+    """Cada MB é uma extração PRÓPRIA — pegar só a de maior id deixaria apenas o
+    último MB coletado alcançável na tela (e o aceite 'coletar o mesmo MB duas
+    vezes e comparar' impossível de conferir)."""
+
+    def setUp(self):
+        self.caminho = os.path.join(tempfile.mkdtemp(), "t.db")
+        self.con, self.curso, self.mb = _semear(self.caminho)
+
+    def tearDown(self):
+        self.con.close()
+
+    def _mb(self, mb_id, disciplina):
+        ext = banco_conteudo.iniciar_extracao(
+            self.con, f"MB · P · {disciplina}", "concursos", tipo="mb")
+        banco_conteudo.gravar_arvore(self.con, ext, [{
+            "id": mb_id, "name": disciplina, "authors_name": "P",
+            "content_tree_cache": [{"chapter_id": "c", "name": "C", "order_index": 0,
+                                    "items": [{"item_id": f"{mb_id}-i", "name": "A",
+                                               "path": "1", "block_type_count": {}}]}]}])
+        return ext
+
+    def test_lista_todos_os_mbs_do_banco_e_nao_so_o_ultimo(self):
+        self._mb("mb-2", "Matemática")
+        rows = painel.cursos_do_universo(self.con, "mb")
+        self.assertEqual([r["curso_id"] for r in rows], ["mb-1", "mb-2"])
+        self.assertEqual([r["nome"] for r in rows],
+                         ["Direito Constitucional", "Matemática"])
+        self.assertEqual(rows[0]["autores"], "Profa Fulana")
+
+    def test_mb_recoletado_aparece_uma_vez_so_pela_coleta_mais_recente(self):
+        nova = self._mb("mb-1", "Direito Constitucional (v2)")
+        rows = painel.cursos_do_universo(self.con, "mb")
+        self.assertEqual([r["curso_id"] for r in rows], ["mb-1"])
+        self.assertEqual(rows[0]["nome"], "Direito Constitucional (v2)")
+        self.assertEqual(self.con.execute(
+            "SELECT MAX(extracao_id) FROM cursos WHERE curso_id='mb-1'"
+        ).fetchone()[0], nova)
+
+    def test_universo_curso_continua_na_coleta_mais_recente_de_curso(self):
+        """Não regride: o seletor de curso ignora os MBs (mesmo com id maior) e
+        continua trazendo só os cursos da última coleta de curso."""
+        self._mb("mb-2", "Matemática")
+        outra = banco_conteudo.iniciar_extracao(self.con, "PRF", "concursos")
+        banco_conteudo.gravar_arvore(self.con, outra, [{
+            "id": "c-9", "name": "Constitucional para PRF",
+            "content_tree_cache": [{"chapter_id": "cap", "name": "Cap", "order_index": 0,
+                                    "items": [{"item_id": "it-9", "name": "A",
+                                               "path": "1", "block_type_count": {}}]}]}])
+        rows = painel.cursos_do_universo(self.con, "curso")
+        self.assertEqual([r["curso_id"] for r in rows], ["c-9"])
+
+
 class TestCoberturaMB(unittest.TestCase):
     """Quanto do acervo do professor chega de fato a um curso."""
 

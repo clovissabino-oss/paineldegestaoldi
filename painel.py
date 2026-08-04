@@ -373,18 +373,42 @@ def avaliacao():
         return Response(f.read(), mimetype="text/html")
 
 
+def cursos_do_universo(con, universo):
+    """As linhas do seletor de disciplina da /avaliacao.
+
+    Os dois universos têm cardinalidade diferente, e é por isso que a consulta
+    também é:
+
+    - **curso**: uma extração = um concurso inteiro (muitos cursos). O seletor é
+      a coleta mais recente — que é o que a tela sempre mostrou. NÃO MUDA.
+    - **mb**: cada Material Base é uma extração PRÓPRIA. Pegar a de maior id
+      deixaria só o último MB coletado alcançável na tela. Aqui listamos todos
+      os MBs do banco, um por curso_id, pela coleta mais recente de cada — o
+      mesmo padrão de cobertura_mb.
+    """
+    if universo == "mb":
+        sql = ("SELECT c.curso_id, c.nome, c.autores FROM cursos c "
+               "JOIN (SELECT a.curso_id cid, MAX(a.extracao_id) eid FROM aulas a "
+               "      JOIN extracoes x ON x.id = a.extracao_id "
+               "      WHERE COALESCE(x.tipo,'curso')='mb' GROUP BY a.curso_id) u "
+               "  ON u.cid = c.curso_id AND u.eid = c.extracao_id "
+               "ORDER BY c.nome")
+        return [dict(r) for r in con.execute(sql)]
+    r = con.execute("SELECT MAX(id) FROM extracoes "
+                    "WHERE COALESCE(tipo,'curso')='curso'").fetchone()
+    e = r[0] or 0
+    return [dict(r) for r in con.execute(
+        "SELECT c.curso_id, c.nome, c.autores FROM cursos c WHERE c.extracao_id=? "
+        "AND EXISTS (SELECT 1 FROM aulas a WHERE a.extracao_id=c.extracao_id "
+        "AND a.curso_id=c.curso_id) ORDER BY c.nome", (e,))]
+
+
 @app.route("/api/cursos")
 def api_cursos():
     universo = "mb" if request.args.get("universo") == "mb" else "curso"
     con = banco_conteudo.abrir(caminho_banco())
     try:
-        r = con.execute("SELECT MAX(id) FROM extracoes "
-                        "WHERE COALESCE(tipo,'curso')=?", (universo,)).fetchone()
-        e = r[0] or 0
-        rows = [dict(r) for r in con.execute(
-            "SELECT c.curso_id, c.nome, c.autores FROM cursos c WHERE c.extracao_id=? "
-            "AND EXISTS (SELECT 1 FROM aulas a WHERE a.extracao_id=c.extracao_id "
-            "AND a.curso_id=c.curso_id) ORDER BY c.nome", (e,))]
+        rows = cursos_do_universo(con, universo)
     finally:
         con.close()
     return {"data": rows}
