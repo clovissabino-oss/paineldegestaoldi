@@ -171,17 +171,20 @@
   document.getElementById("chips").innerHTML =
     chips.map(c => `<span class="chip">${c}</span>`).join("");
 
+  // No universo MB estes dois KPIs não dizem nada: "cursos encontrados" é sempre 1
+  // (o curso sintético do próprio MB) e "itens no Material Base" é 100% por
+  // definição — todo item de um MB está, por construção, no MB.
   const kpis = [
-    { n: K.cursos_total, l: "cursos encontrados", d: `${fmt(K.cursos_com_aulas)} com itens` },
+    ehMB ? null : { n: K.cursos_total, l: "cursos encontrados", d: `${fmt(K.cursos_com_aulas)} com itens` },
     { n: K.aulas_unicas, l: "itens únicos", d: `${fmt(K.vinculos)} vínculos curso↔item` },
-    { n: K.itens_total ? K.itens_mb : "—",
+    ehMB ? null : { n: K.itens_total ? K.itens_mb : "—",
       l: "itens no Material Base",
       d: K.itens_total ? `de ${fmt(K.itens_total)} (${Math.round(K.itens_mb / K.itens_total * 100)}%)` : "sem dado neste snapshot" },
     { n: K.blocos, l: "blocos únicos", d: "todos os tipos" },
     { n: K.questoes, l: "questões", d: K.blocos ? `${Math.round(K.questoes / K.blocos * 100)}% dos blocos` : "" },
     { n: K.textos, l: "blocos de texto", d: "o livro em si" },
     { n: K.videos, l: "vídeos", d: K.casts ? `inclui ${fmt(K.casts)} casts` : "" },
-  ];
+  ].filter(Boolean);
   document.getElementById("kpis").innerHTML = kpis.map(k =>
     `<div class="kpi"><div class="n">${fmt(k.n)}</div><div class="l">${k.l}</div><div class="d">${k.d}</div></div>`).join("");
 
@@ -204,9 +207,10 @@
     [X.v_sem_id ? "crit" : "ok", `<b>${fmt(X.v_sem_id)}</b> vídeos sem ID do sistema antigo no nome (fora do de→para)`],
     [(X.aulas_vazias || X.rascunhos) ? "warn" : "ok", `<b>${fmt(X.aulas_vazias)}</b> itens vazios e <b>${fmt(X.rascunhos)}</b> blocos em rascunho`],
     ["ok", `<b>${fmt(X.q_com_video)}</b> questões já têm solução em vídeo`],
-    [X.aulas_com_item_fora_mb ? "warn" : "ok",
+    // no universo MB este achado é sempre "0 aulas": todo item de um MB está no MB
+    ehMB ? null : [X.aulas_com_item_fora_mb ? "warn" : "ok",
      `<b>${fmt(X.aulas_com_item_fora_mb)}</b> aulas com itens fora do Material Base`],
-  ];
+  ].filter(Boolean);
   document.getElementById("findings").innerHTML = achados.map(([s, t]) =>
     `<div class="find"><span class="tag ${s}">${s === "warn" ? "atenção" : s === "crit" ? "crítico" : "ok"}</span><div class="t">${t}</div></div>`).join("");
 
