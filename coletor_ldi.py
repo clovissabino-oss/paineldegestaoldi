@@ -12,9 +12,14 @@
        --termo       sobrepõe o termo_busca do config.json
        --continuar   retoma a coleta interrompida/parcial mais recente do termo
        --com-videos  além da base, emite o videos_*.json/csv clássico
-       --mb          coleta o Material Base de um professor (UUID ou URL do admin)
-       --mb-professor  busca o professor pelo nome e lista os MBs dele
        --agendado    não pede ENTER no final (p/ Agendador de Tarefas)
+
+ Material Base do professor (universo separado — não roda regras de
+ qualidade nem publica no Supabase):
+       --mb-professor NOME  busca o professor e imprime o comando pronto de cada MB dele
+       --mb ID_OU_URL       coleta esse Material Base (UUID ou URL do admin)
+       --professor NOME     nome a rotular na coleta; só vale junto com --mb
+                            (sem ele, o professor fica com o UUID do LDI)
 ============================================================
 """
 import argparse

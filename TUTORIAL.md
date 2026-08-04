@@ -58,6 +58,48 @@ Outras opções do `config.json`:
 | `incluir_url` | `false` = CSV sem a coluna do link do vídeo (fica mais leve) |
 | `concorrencia` | Consultas simultâneas (padrão 4 — não precisa mexer) |
 
+## Coletar o Material Base de um professor
+
+O **Material Base** é o acervo particular do professor no LDI — tudo o que ele tem,
+e não só o que entrou num curso. A coleta é a mesma coisa de sempre, só que a origem
+é o professor em vez do concurso. São dois comandos, nesta ordem.
+
+**1. Ache o professor.** Abra o Prompt de Comando na pasta do app e digite o
+sobrenome dele:
+
+```powershell
+py coletor_ldi.py --mb-professor "Ciciliati"
+```
+
+> A busca do LDI é de **uma palavra só** — "Nilza Ciciliati" costuma não achar nada,
+> "Ciciliati" acha. Se não vier ninguém, tente outro sobrenome.
+
+**2. Copie o comando que apareceu na tela e cole de volta.** A resposta já vem com a
+linha pronta para cada disciplina do professor:
+
+```
+Profa Nilza Ciciliati  <nilza@estrategia.com>  (a1b2c3d4-...)
+   py coletor_ldi.py --mb 3e8e7c78-... --professor "Profa Nilza Ciciliati"   # Serviço Social
+```
+
+Copie a linha da disciplina que você quer (sem o `#` e o comentário), cole no Prompt
+e dê Enter. Cada disciplina é uma coleta separada — se o professor tem 3 disciplinas,
+são 3 comandos.
+
+**3. Veja o resultado** no painel: `py painel.py` e clique em
+**🎓 Material Base (professores)** no topo. A planilha de avaliação (`/avaliacao`)
+tem o mesmo seletor, em "Universo".
+
+Coisas que valem saber:
+
+- Se o professor **não aparecer na busca**, dá para coletar mesmo assim: copie a URL
+  do Material Base no admin e rode `py coletor_ldi.py --mb "<URL colada>"`. Sem o
+  `--professor`, o app mostra o código interno (UUID) no lugar do nome — não é erro.
+- O cabeçalho pode dizer **"N capítulos ocultos pelo professor, fora desta coleta"**:
+  o LDI não entrega o que está oculto, então o acervo real é maior que o coletado.
+- Material Base **não aparece na web** e **não gera pendências de qualidade** — é
+  leitura local, no seu computador.
+
 ## Rodar todo dia sozinho (Agendador do Windows)
 
 1. Menu Iniciar → digite **Agendador de Tarefas** → abra.
