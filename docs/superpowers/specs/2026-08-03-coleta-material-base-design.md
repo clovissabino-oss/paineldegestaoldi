@@ -68,7 +68,19 @@ Consequências:
   completo no Dir. Administrativo) — não serve como fonte de ordem. Usa-se a ordem que a
   API devolve.
 - Ao contrário do curso (onde `order_index` é 0 em todos os 2.547 capítulos da base), no MB
-  a ordem devolvida é real.
+  a ordem devolvida é real. O `path` do capítulo, porém, vem **vazio** — a ordem é a posição
+  no array. E capítulo/item do MB **não têm `updated_at`**.
+
+### ⚠ O `type_count` do item-pai já inclui os descendentes
+
+Medido: um item com `question: 149` tem 7 filhos que somam **exatamente 149**, e
+`GET /bo/ldi/blocks` do pai devolve **0 questões** (1 bloco) — o pai é pasta, o conteúdo
+está nos filhos. Achatar pai e filhos guardando o `type_count` de cada um **dobraria** todas
+as contagens do capítulo, em silêncio.
+
+Regra correta: **contagem própria do nó = `type_count` do nó − Σ `type_count` dos filhos
+diretos** (por chave, mínimo 0), recursivamente. Sem isso, achatar sub-itens — que é o que
+este spec manda fazer — introduz um erro de 100% nos capítulos com sub-itens.
 
 ### Limitações da busca de professor
 
