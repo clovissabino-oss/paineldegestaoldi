@@ -98,6 +98,7 @@
 <div class="wrap">
   <p class="eyebrow">Painel de Conteúdo · Inventário
     &nbsp;·&nbsp; <a href="/avaliacao" style="color:inherit">📋 Avaliação de disciplina</a></p>
+  <p class="eyebrow" id="universo"></p>
   <h1 id="titulo"></h1>
   <p class="sub">Dados vivos da base <code>conteudo.db</code> — snapshot mais recente.
   Rode o coletor de novo (ou outro concurso) e recarregue a página.</p>
@@ -139,14 +140,36 @@
   const fmt = n => (n || 0).toLocaleString("pt-BR");
   const K = D.kpis, X = D.achados, E = D.extracao;
 
-  document.getElementById("titulo").textContent = `${E.termo} — inventário de conteúdo do BO`;
-  document.title = `Painel de Conteúdo — ${E.termo}`;
+  const ehMB = E.tipo === "mb";
+  document.getElementById("universo").innerHTML =
+    ["curso", "mb"].map(u => {
+      const rotulo = u === "mb" ? "🎓 Material Base (professores)" : "📚 Cursos (LDI)";
+      const atual = (u === "mb") === ehMB;
+      return atual ? `<b>${rotulo}</b>`
+                   : `<a href="/${u === "mb" ? "?universo=mb" : ""}" style="color:inherit">${rotulo}</a>`;
+    }).join(" &nbsp;·&nbsp; ");
+
+  const titulo = ehMB ? `${E.disciplina} — Material Base de ${E.professor_nome || "professor sem nome no diretório"}`
+                      : `${E.termo} — inventário de conteúdo do BO`;
+  document.getElementById("titulo").textContent = titulo;
+  document.title = ehMB ? `Material Base — ${E.disciplina}` : `Painel de Conteúdo — ${E.termo}`;
 
   const dt = (E.iniciada_em || "").replace("T", " ").slice(0, 16);
-  document.getElementById("chips").innerHTML = [
-    `Snapshot <b>#${E.id}</b>`, `Coletado em <b>${dt}</b>`, `Termo <b>${E.termo}</b>`,
+  const chips = [
+    `Snapshot <b>#${E.id}</b>`, `Coletado em <b>${dt}</b>`,
+    ehMB ? `Disciplina <b>${E.disciplina}</b>` : `Termo <b>${E.termo}</b>`,
     `Status <b>${E.status}</b> · ${fmt(E.erros)} erro(s)`,
-  ].map(c => `<span class="chip">${c}</span>`).join("");
+  ];
+  if (ehMB && E.capitulos_ocultos) {
+    chips.push(`<b>${fmt(E.capitulos_ocultos)}</b> capítulos ocultos pelo professor, fora desta coleta`);
+  }
+  if (ehMB && D.cobertura) {
+    const c = D.cobertura;
+    const pct = c.itens_mb ? Math.round(100 * c.itens_em_curso / c.itens_mb) : 0;
+    chips.push(`Chega a algum curso: <b>${fmt(c.itens_em_curso)}</b> de ${fmt(c.itens_mb)} itens (${pct}%) · comparado com ${fmt(c.cursos_comparados)} curso(s) na base`);
+  }
+  document.getElementById("chips").innerHTML =
+    chips.map(c => `<span class="chip">${c}</span>`).join("");
 
   const kpis = [
     { n: K.cursos_total, l: "cursos encontrados", d: `${fmt(K.cursos_com_aulas)} com itens` },
