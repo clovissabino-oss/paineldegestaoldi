@@ -148,6 +148,91 @@ def _completar_vinculo_mb(sessao, con, extracao_id, cursos, concorrencia):
               "(possível mudança de formato do endpoint) — vinculado_mb ficou vazio.")
 
 
+# ── Material Base do professor (universo separado do LDI de curso) ──────────
+
+_MIN_TERMO_PROFESSOR = 3
+
+
+def extrair_id_mb(texto):
+    """UUID do MB a partir de um UUID solto ou da URL do admin
+    (…/base-material/edit?id=<uuid>&team_id). Pega SEMPRE o id=, nunca o team_id=."""
+    tok = (texto or "").strip()
+    m = re.search(rf"[?&]id=({_UUID})", tok)
+    if m:
+        return m.group(1).lower()
+    if re.fullmatch(_UUID, tok):
+        return tok.lower()
+    raise extrator_ldi.falha(f"Não achei um ID de Material Base em: {tok[:60]}")
+
+
+def _get_mb(sessao, caminho):
+    r = sessao.get(f"{extrator_ldi.API}{caminho}", timeout=120)
+    if r.status_code in (401, 403):
+        raise CookieVencido(1)
+    if not r.ok:
+        raise extrator_ldi.falha(f"HTTP {r.status_code} em {caminho}")
+    return r.json()
+
+
+def obter_mb(sessao, mb_id):
+    """Detalhe do Material Base: name (disciplina), user_id, hide_chapters."""
+    return _get_mb(sessao, f"/bo/ldi/base-material/{mb_id}").get("data") or {}
+
+
+def capitulos_do_mb(sessao, mb_id):
+    """A árvore INTEIRA numa requisição (medido: 36 capítulos, 366 KB, 1,1 s)."""
+    return _get_mb(sessao, f"/bo/ldi/base-material/{mb_id}/chapters?page=1&per_page=100"
+                   ).get("data") or []
+
+
+def mbs_do_professor(sessao, user_id):
+    return _get_mb(sessao, f"/bo/ldi/base-material?page=1&per_page=100&user_id={user_id}"
+                   ).get("data") or []
+
+
+def indice_de_mbs(sessao):
+    """Os ~387 MBs da base. Serve para saber QUEM é professor: o LDI não tem
+    endpoint de professores, e a busca de usuários devolve alunos também."""
+    todos, pagina = [], 1
+    while pagina <= 10:  # trava de segurança; hoje são 4 páginas
+        lote = _get_mb(sessao, f"/bo/ldi/base-material?page={pagina}&per_page=100"
+                       ).get("data") or []
+        todos += lote
+        if len(lote) < 100:
+            break
+        pagina += 1
+    return todos
+
+
+def buscar_professores_com_mb(sessao, termo):
+    """Busca no diretório do LDI e devolve SÓ quem tem Material Base.
+
+    O `users?term=` varre todos os usuários (alunos inclusive), ignora per_page e
+    devolve ~50 sem ranking — sozinho ele é inútil. Cruzar com o índice de MBs é o
+    que transforma isso numa busca de professor.
+    """
+    termo = (termo or "").strip()
+    if len(termo) < _MIN_TERMO_PROFESSOR:
+        raise extrator_ldi.falha(
+            f"Busque o professor com pelo menos {_MIN_TERMO_PROFESSOR} letras "
+            "(tente só o sobrenome — a busca do LDI é de uma palavra só).")
+    usuarios = _get_mb(sessao, f"/bo/ldi/users?page=1&per_page=50&term={termo}"
+                       ).get("data") or []
+    por_dono = {}
+    for mb in indice_de_mbs(sessao):
+        por_dono.setdefault(mb.get("user_id"), []).append(
+            {"id": mb.get("id"), "disciplina": (mb.get("name") or "").strip()})
+    achados = []
+    for u in usuarios:
+        mbs = por_dono.get(u.get("id"))
+        if mbs:
+            achados.append({"user_id": u.get("id"),
+                            "nome": u.get("full_name") or u.get("id"),
+                            "email": u.get("email") or "",
+                            "mbs": sorted(mbs, key=lambda m: m["disciplina"])})
+    return achados
+
+
 def _baixar_lote(sessao, con, extracao_id, pendentes, concorrencia,
                  videos_por_item=None, progresso=None):
     """Baixa e grava as aulas pendentes; devolve {item_id: erro} das que falharam.
