@@ -278,11 +278,12 @@ def listar_extracoes(con, publicadas):
     linhas = []
     for r in con.execute(
             "SELECT e.id, e.termo, e.iniciada_em, e.status, e.total_cursos, "
+            "       COALESCE(e.tipo,'curso') tipo, "
             "       (SELECT COUNT(*) FROM blocos b WHERE b.extracao_id = e.id) blocos "
             "FROM extracoes e ORDER BY e.id"):
         chave = (r["termo"], (r["iniciada_em"] or "")[:_TAM_DATA])
         linhas.append({
-            "id": r["id"], "termo": r["termo"],
+            "id": r["id"], "termo": r["termo"], "tipo": r["tipo"],
             "iniciada_em": (r["iniciada_em"] or "")[:16].replace("T", " "),
             "status": r["status"], "cursos": r["total_cursos"] or 0,
             "blocos": r["blocos"] or 0,
@@ -341,10 +342,11 @@ def _imprimir_listagem(linhas):
     if not linhas:
         print("  (nenhuma extração no banco)")
         return
-    print(f"  {'#':>3}  {'termo':28}  {'quando':16}  {'cursos':>6}  {'blocos':>7}  publicada?")
+    print(f"  {'#':>3}  {'tipo':5}  {'termo':28}  {'quando':16}  "
+          f"{'cursos':>6}  {'blocos':>7}  publicada?")
     for l in linhas:
         pub = {True: "sim", False: "não", None: "?"}[l["publicada"]]
-        print(f"  {l['id']:>3}  {l['termo'][:28]:28}  {l['iniciada_em']:16}  "
+        print(f"  {l['id']:>3}  {l['tipo']:5}  {l['termo'][:28]:28}  {l['iniciada_em']:16}  "
               f"{l['cursos']:>6}  {l['blocos']:>7}  {pub}")
     print("\n  'publicada?' = a coleta está no Supabase (o time vê na web).")
     print("  Apagar aqui NÃO tira nada do ar — a web tem tela própria para isso.")
