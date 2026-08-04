@@ -93,5 +93,54 @@ class TestUniversos(unittest.TestCase):
         self.assertEqual([c["curso_id"] for c in mb], ["mb-1"])
 
 
+class TestCoberturaMB(unittest.TestCase):
+    """Quanto do acervo do professor chega de fato a um curso."""
+
+    def setUp(self):
+        self.caminho = os.path.join(tempfile.mkdtemp(), "t.db")
+        self.con, self.curso, self.mb = _semear(self.caminho)
+
+    def tearDown(self):
+        self.con.close()
+
+    def test_conta_so_os_itens_que_estao_em_curso(self):
+        """O MB tem it-1, it-9 e it-10; o curso tem it-1 e it-2. Só it-1 é cobertura.
+        Sem o filtro de tipo, o próprio MB entraria como 'curso' e daria 3 de 3."""
+        c = painel.cobertura_mb(self.con, self.mb)
+        self.assertEqual(c["itens_mb"], 3)
+        self.assertEqual(c["itens_em_curso"], 1)
+        self.assertEqual(c["cursos_comparados"], 1)
+
+    def test_sem_curso_no_banco_a_cobertura_e_zero_e_diz_contra_quantos_comparou(self):
+        con2 = banco_conteudo.abrir(os.path.join(tempfile.mkdtemp(), "so_mb.db"))
+        try:
+            mb = banco_conteudo.iniciar_extracao(con2, "MB · X · Y", "concursos", tipo="mb")
+            banco_conteudo.gravar_arvore(con2, mb, [{
+                "id": "mb-9", "name": "Y",
+                "content_tree_cache": [{"chapter_id": "c", "name": "C", "order_index": 0,
+                                        "items": [{"item_id": "z", "name": "Z", "path": "1",
+                                                   "block_type_count": {}}]}]}])
+            c = painel.cobertura_mb(con2, mb)
+            self.assertEqual((c["itens_em_curso"], c["cursos_comparados"]), (0, 0))
+        finally:
+            con2.close()
+
+    def test_curso_recoletado_conta_uma_vez_so(self):
+        """Duas coletas do mesmo curso não podem inflar 'cursos_comparados'."""
+        outra = banco_conteudo.iniciar_extracao(self.con, "BACEN", "concursos")
+        banco_conteudo.gravar_arvore(self.con, outra, [{
+            "id": "c-1", "name": "Constitucional para BACEN", "published": True,
+            "content_tree_cache": [{"chapter_id": "cap", "name": "Cap", "order_index": 0,
+                                    "items": [{"item_id": "it-1", "name": "A", "path": "1",
+                                               "block_type_count": {}}]}]}])
+        c = painel.cobertura_mb(self.con, self.mb)
+        self.assertEqual(c["cursos_comparados"], 1)
+        self.assertEqual(c["itens_em_curso"], 1)
+
+    def test_o_dict_do_painel_traz_cobertura_so_no_universo_mb(self):
+        self.assertIn("cobertura", painel.dados_do_snapshot(self.con, tipo="mb"))
+        self.assertNotIn("cobertura", painel.dados_do_snapshot(self.con))
+
+
 if __name__ == "__main__":
     unittest.main()

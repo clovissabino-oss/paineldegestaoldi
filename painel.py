@@ -69,7 +69,7 @@ def dados_do_snapshot(con, tipo="curso"):
         "  ON a.extracao_id = c.extracao_id AND a.curso_id = c.curso_id "
         "WHERE c.extracao_id=? GROUP BY c.curso_id ORDER BY questoes DESC", (e,))]
     q_unicas = um("SELECT COUNT(*) FROM blocos WHERE extracao_id=? AND tipo='question'", e)
-    return {
+    resultado = {
         "extracao": {"id": e, "termo": ext["termo"], "iniciada_em": ext["iniciada_em"],
                      "status": ext["status"],
                      "erros": len(json.loads(ext["erros_json"] or "{}")),
@@ -113,6 +113,36 @@ def dados_do_snapshot(con, tipo="curso"):
         "tipos": tipos,
         "cursos": cursos,
     }
+    if (ext["tipo"] or "curso") == "mb":
+        resultado["cobertura"] = cobertura_mb(con, e)
+    return resultado
+
+
+def cobertura_mb(con, extracao_id):
+    """Quanto do Material Base chega de fato a um curso.
+
+    Compara contra a coleta MAIS RECENTE de cada curso do banco (universo 'curso').
+    Devolve também quantos cursos entraram na comparação — sem isso o percentual
+    mente: 35% contra um único concurso não é 35% do catálogo.
+    """
+    itens_mb = con.execute(
+        "SELECT COUNT(DISTINCT item_id) FROM aulas WHERE extracao_id=?",
+        (extracao_id,)).fetchone()[0] or 0
+    ultimas = con.execute(
+        "SELECT a.curso_id, MAX(a.extracao_id) FROM aulas a "
+        "JOIN extracoes x ON x.id = a.extracao_id "
+        "WHERE COALESCE(x.tipo,'curso')='curso' GROUP BY a.curso_id").fetchall()
+    if not ultimas:
+        return {"itens_mb": itens_mb, "itens_em_curso": 0, "cursos_comparados": 0}
+    pares = [(cid, eid) for cid, eid in ultimas]
+    marcas = " OR ".join(["(a.curso_id=? AND a.extracao_id=?)"] * len(pares))
+    valores = [v for par in pares for v in par]
+    em_curso = con.execute(
+        "SELECT COUNT(*) FROM (SELECT DISTINCT item_id FROM aulas WHERE extracao_id=?) m "
+        f"WHERE m.item_id IN (SELECT DISTINCT a.item_id FROM aulas a WHERE {marcas})",
+        (extracao_id, *valores)).fetchone()[0] or 0
+    return {"itens_mb": itens_mb, "itens_em_curso": em_curso,
+            "cursos_comparados": len(pares)}
 
 
 _DEPARA = {"cache": None, "carregado": False}
