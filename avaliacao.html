@@ -86,6 +86,10 @@
 
   <div class="barra">
     <label>Disciplina:
+      <select id="selUniverso">
+        <option value="curso">📚 Cursos (LDI)</option>
+        <option value="mb">🎓 Material Base</option>
+      </select>
       <select id="selCurso"><option value="">carregando...</option></select>
     </label>
     <label>Banca-alvo:
@@ -152,14 +156,32 @@
   }
 
   async function carregarCursos() {
-    const r = await fetch("/api/cursos");
+    // troca de universo: zera o que estava renderizado da disciplina anterior — senão o
+    // que ficou na tela parece pertencer ao novo universo escolhido.
+    D = null;
+    ABERTOS.clear();
+    document.getElementById("titulo").textContent = "Escolha uma disciplina";
+    document.getElementById("autores").textContent = "";
+    document.getElementById("corpo").innerHTML = "";
+    document.getElementById("dash").innerHTML = "";
+    document.getElementById("selBanca").innerHTML = '<option value="">— sem banca-alvo —</option>';
+    document.getElementById("avisoAntigo").hidden = true;
+
+    const universo = document.getElementById("selUniverso").value;
+    const r = await fetch("/api/cursos?universo=" + encodeURIComponent(universo));
     const cursos = (await r.json()).data;
     const sel = document.getElementById("selCurso");
     sel.innerHTML = '<option value="">— escolha —</option>' + cursos.map(c =>
       `<option value="${c.curso_id}">${c.nome.trim()}</option>`).join("");
-    sel.addEventListener("change", () => sel.value && carregarAvaliacao(sel.value));
     if (cursos.length === 1) { sel.value = cursos[0].curso_id; carregarAvaliacao(sel.value); }
   }
+  // ligado uma única vez fora da função — carregarCursos roda de novo a cada troca de
+  // universo e reatribuiria outro listener ao mesmo <select> se ficasse aqui dentro.
+  document.getElementById("selCurso").addEventListener("change", () => {
+    const sel = document.getElementById("selCurso");
+    sel.value && carregarAvaliacao(sel.value);
+  });
+  document.getElementById("selUniverso").addEventListener("change", carregarCursos);
 
   async function carregarAvaliacao(cursoId) {
     const r = await fetch("/api/avaliacao?curso_id=" + encodeURIComponent(cursoId));
