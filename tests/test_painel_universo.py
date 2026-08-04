@@ -29,7 +29,9 @@ def _semear(caminho):
                                 "items": [{"item_id": "it-1", "name": "A", "path": "1",
                                            "block_type_count": {"question": 3}},
                                           {"item_id": "it-9", "name": "Z", "path": "9",
-                                           "block_type_count": {"question": 7}}]}]}])
+                                           "block_type_count": {"question": 7}},
+                                          {"item_id": "it-10", "name": "W", "path": "10",
+                                           "block_type_count": {"question": 2}}]}]}])
     return con, curso, mb
 
 
@@ -57,8 +59,12 @@ class TestUniversos(unittest.TestCase):
         self.assertEqual(d["extracao"]["capitulos_ocultos"], 111)
 
     def test_kpis_de_curso_ignoram_os_itens_do_mb(self):
+        """O MB tem 3 itens únicos (it-1, it-9, it-10) e o curso só 2 (it-1, it-2) —
+        números diferentes de propósito, para que o teste acuse o bug de verdade: com a
+        consulta antiga (sem filtro de tipo), o painel agregaria sobre o MB e devolveria 3,
+        não 2."""
         d = painel.dados_do_snapshot(self.con)
-        self.assertEqual(d["kpis"]["aulas_unicas"], 2)  # não 3 (it-9 é só do MB)
+        self.assertEqual(d["kpis"]["aulas_unicas"], 2)
 
     def test_sem_coleta_do_universo_devolve_none(self):
         con2 = banco_conteudo.abrir(os.path.join(tempfile.mkdtemp(), "so_curso.db"))
@@ -67,6 +73,15 @@ class TestUniversos(unittest.TestCase):
             self.assertIsNone(painel.dados_do_snapshot(con2, tipo="mb"))
         finally:
             con2.close()
+
+    def test_dados_avaliacao_resolve_o_universo_pelo_curso_id(self):
+        """dados_avaliacao NÃO filtra por tipo (painel.py:235) — e está certo assim: o
+        curso_id de um MB é o próprio mb_id, num namespace que não colide com o de um
+        curso, então a consulta por curso_id já resolve o universo certo por construção."""
+        av_curso = painel.dados_avaliacao(self.con, "c-1")
+        av_mb = painel.dados_avaliacao(self.con, "mb-1")
+        self.assertEqual([c["nome"] for c in av_curso["capitulos"]], ["Cap"])
+        self.assertEqual([c["nome"] for c in av_mb["capitulos"]], ["Cap MB"])
 
     def test_api_cursos_respeita_o_universo(self):
         painel.app.config["TESTING"] = True
