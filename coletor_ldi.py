@@ -446,6 +446,8 @@ def main():
                                      "(UUID ou URL do admin)")
     parser.add_argument("--mb-professor", dest="mb_professor",
                         help="busca o professor pelo nome e lista os Materiais Base dele")
+    parser.add_argument("--professor", help="nome do professor a rotular na coleta do MB "
+                                            "(o --mb-professor imprime o comando pronto com ele)")
     parser.add_argument("--agendado", action="store_true", help="não pede ENTER no final")
     args = parser.parse_args()
 
@@ -453,6 +455,8 @@ def main():
     if args.continuar and args.com_videos:
         raise extrator_ldi.falha("--com-videos não funciona com --continuar "
                                  "(rode uma coleta nova).")
+    if args.professor and not args.mb:
+        raise extrator_ldi.falha("--professor só vale acompanhado de --mb.")
     if args.ids:
         if not args.rotulo:
             raise extrator_ldi.falha("--ids exige --rotulo (o nome do concurso no app).")
@@ -476,22 +480,13 @@ def main():
         for a in achados:
             print(f"\n{a['nome']}  <{a['email']}>  ({a['user_id']})")
             for mb in a["mbs"]:
-                print(f"   py coletor_ldi.py --mb {mb['id']}   # {mb['disciplina']}")
+                print(f'   py coletor_ldi.py --mb {mb["id"]} --professor "{a["nome"]}"'
+                      f'   # {mb["disciplina"]}')
         return
 
     if args.mb:
         mb_id = extrair_id_mb(args.mb)
-        nome = ""
-        detalhe = obter_mb(sessao, mb_id)
-        try:  # o nome do professor não vem no MB; resolve-se pelo diretório
-            for a in buscar_professores_com_mb(sessao, (detalhe.get("name") or "")[:20]):
-                if a["user_id"] == detalhe.get("user_id"):
-                    nome = a["nome"]
-                    break
-        except Exception as e:  # o nome é enriquecimento: sem ele o UUID aparece
-            print(f"      (não consegui resolver o nome do professor: {e} — "
-                  "o UUID vai aparecer no lugar)")
-        coletar_mb(cfg, sessao, mb_id, caminho, professor_nome=nome)
+        coletar_mb(cfg, sessao, mb_id, caminho, professor_nome=args.professor or "")
         return
 
     print("=" * 60)

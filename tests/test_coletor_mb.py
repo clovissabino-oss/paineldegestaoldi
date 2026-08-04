@@ -188,5 +188,41 @@ class TestColetarMB(unittest.TestCase):
             con.close()
 
 
+import sys
+from unittest import mock
+
+import extrator_ldi
+
+
+class TestCLIProfessor(unittest.TestCase):
+    """--professor: o nome do professor NÃO pode vir de resolução automática pela
+    disciplina (defeito da revisão da Task 4) — quem o informa é quem chama o CLI.
+    Cobre só o parse/roteamento de main(); nenhum destes testes toca rede."""
+
+    def _cfg(self):
+        return {"termo_busca": "PRF", "filtro_local": "", "vertical": "concursos",
+                "pasta_saida": "saida", "concorrencia": 2}
+
+    def test_mb_com_professor_repassa_o_nome_para_coletar_mb(self):
+        argv = ["coletor_ldi.py", "--mb",
+                "3e8e7c78-cdc4-4dc2-90ad-0dae39b827f5", "--professor", "Profa Fulana"]
+        with mock.patch.object(sys, "argv", argv), \
+             mock.patch.object(extrator_ldi, "carregar_config", return_value=self._cfg()), \
+             mock.patch.object(extrator_ldi, "carregar_cookie", return_value="c"), \
+             mock.patch.object(extrator_ldi, "montar_sessao", return_value=object()), \
+             mock.patch.object(coletor_ldi, "coletar_mb") as m:
+            coletor_ldi.main()
+        self.assertEqual(m.call_args.kwargs.get("professor_nome"), "Profa Fulana")
+
+    def test_professor_sem_mb_levanta_antes_de_montar_sessao(self):
+        argv = ["coletor_ldi.py", "--professor", "Profa Fulana"]
+        with mock.patch.object(sys, "argv", argv), \
+             mock.patch.object(extrator_ldi, "carregar_config", return_value=self._cfg()), \
+             mock.patch.object(extrator_ldi, "montar_sessao") as sessao_mock:
+            with self.assertRaises(SystemExit):
+                coletor_ldi.main()
+            sessao_mock.assert_not_called()  # falhou antes de qualquer chamada de rede
+
+
 if __name__ == "__main__":
     unittest.main()
