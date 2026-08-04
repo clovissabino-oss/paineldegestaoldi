@@ -43,10 +43,14 @@ def caminho_banco():
     return os.path.join(PASTA_APP, cfg["pasta_saida"], "conteudo.db")
 
 
-def dados_do_snapshot(con):
-    """Agrega o snapshot mais recente da base num dict pronto para a tela.
-    Devolve None se ainda não houver coleta."""
-    ext = con.execute("SELECT * FROM extracoes ORDER BY id DESC LIMIT 1").fetchone()
+def dados_do_snapshot(con, tipo="curso"):
+    """Agrega o snapshot mais recente DO UNIVERSO pedido ('curso' ou 'mb').
+
+    O filtro por tipo não é decoração: sem ele, coletar um Material Base faria o
+    painel de cursos passar a mostrar o MB, que é a coleta de id mais alto."""
+    ext = con.execute(
+        "SELECT * FROM extracoes WHERE COALESCE(tipo,'curso')=? "
+        "ORDER BY id DESC LIMIT 1", (tipo,)).fetchone()
     if ext is None:
         return None
     e = ext["id"]
@@ -68,7 +72,11 @@ def dados_do_snapshot(con):
     return {
         "extracao": {"id": e, "termo": ext["termo"], "iniciada_em": ext["iniciada_em"],
                      "status": ext["status"],
-                     "erros": len(json.loads(ext["erros_json"] or "{}"))},
+                     "erros": len(json.loads(ext["erros_json"] or "{}")),
+                     "tipo": ext["tipo"] or "curso",
+                     "professor_nome": ext["professor_nome"] or "",
+                     "disciplina": ext["disciplina"] or "",
+                     "capitulos_ocultos": ext["capitulos_ocultos"] or 0},
         "kpis": {
             "cursos_total": um("SELECT COUNT(*) FROM cursos WHERE extracao_id=?", e),
             "cursos_com_aulas": len(cursos),
@@ -287,15 +295,19 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
+    universo = "mb" if request.args.get("universo") == "mb" else "curso"
     con = banco_conteudo.abrir(caminho_banco())
     try:
-        dados = dados_do_snapshot(con)
+        dados = dados_do_snapshot(con, tipo=universo)
     finally:
         con.close()
     if dados is None:
-        return Response("<h1>Sem coletas na base ainda.</h1>"
-                        "<p>Rode <code>py coletor_ldi.py --termo SEU_CONCURSO</code> "
-                        "e recarregue esta página.</p>", mimetype="text/html")
+        vazio = ("Nenhum Material Base coletado ainda.</h1>"
+                 "<p>Rode <code>py coletor_ldi.py --mb &lt;id do MB&gt;</code>"
+                 if universo == "mb" else
+                 "Sem coletas na base ainda.</h1>"
+                 "<p>Rode <code>py coletor_ldi.py --termo SEU_CONCURSO</code>")
+        return Response(f"<h1>{vazio} e recarregue esta página.</p>", mimetype="text/html")
     html = _html().replace("__DADOS__", json.dumps(dados, ensure_ascii=False))
     return Response(html, mimetype="text/html")
 
@@ -309,9 +321,12 @@ def avaliacao():
 
 @app.route("/api/cursos")
 def api_cursos():
+    universo = "mb" if request.args.get("universo") == "mb" else "curso"
     con = banco_conteudo.abrir(caminho_banco())
     try:
-        e = con.execute("SELECT MAX(id) FROM extracoes").fetchone()[0] or 0
+        r = con.execute("SELECT MAX(id) FROM extracoes "
+                        "WHERE COALESCE(tipo,'curso')=?", (universo,)).fetchone()
+        e = r[0] or 0
         rows = [dict(r) for r in con.execute(
             "SELECT c.curso_id, c.nome, c.autores FROM cursos c WHERE c.extracao_id=? "
             "AND EXISTS (SELECT 1 FROM aulas a WHERE a.extracao_id=c.extracao_id "
